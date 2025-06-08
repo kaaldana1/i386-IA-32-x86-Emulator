@@ -1,5 +1,5 @@
-#ifndef PARSE_CODE_H
-#define PARSE_CODE_H
+#ifndef PROGRAM_LOADER_H 
+#define PROGRAM_LOADER_H
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +32,7 @@ int parse_file(Program *p) {
     }
     fclose(fptr);
 
-    p->program = malloc(bytes);
+    p->program = (uint8_t*)malloc(bytes);
     if (p->program == NULL) { printf("err"); exit(1); }
 
     memcpy(p->program, tmp, bytes);

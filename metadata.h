@@ -1,10 +1,11 @@
-#ifndef OPCODE_H
-#define OPCODE_H
+#ifndef METADATA_H
+#define METADATA_H
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define REG_TO_REG 0
 #define REG_TO_IMM 1
@@ -23,9 +24,9 @@
 #define md_ADD_RM8_R8  {HAS_MODRM,  NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
 #define md_ADD_RM32_R32  {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, MEM_TO_REG}
 #define md_ADD_R32_RM32  {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
-#define md_ADD_AL_IMM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, 2, NO_DISPLACEMENT, REG_TO_MEM}
-#define md_ADD_EAX_IMM32  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, 2, NO_DISPLACEMENT, REG_TO_MEM} //change
-#define md_ADD_R8_RM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, 2, NO_DISPLACEMENT, REG_TO_MEM} //change
+#define md_ADD_AL_IMM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2 , REG_TO_MEM}
+#define md_ADD_EAX_IMM32  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM} //change
+#define md_ADD_R8_RM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM} //change
 
 //---- LUTs for OPCODES----
 //=========================
@@ -57,12 +58,6 @@ typedef enum {
     CALL_REL32,
     RET
 } Opcode_ID;
-
-
-Opcode_ID single_byte_opcode_lut[6] = {  // this should be expanded to 256 entries once completed (some will be invalid)
-    ADD_RM8_R8, ADD_RM32_R32, ADD_R8_RM8, // 0x00, 0x01, 0x02
-    ADD_R32_RM32, ADD_AL_IMM8, ADD_EAX_IMM32, // 0x03, 0x04, 0x05
-};
 
 
 typedef struct {
