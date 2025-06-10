@@ -4,7 +4,7 @@ extern int initialize_ram(Program *program);
 
 int interpreter() {
     int start_addr;
-    while (registers[EIP].dword < (uint32_t)ram_struct.stack_base){
+    while (registers[EIP].dword < (uint32_t)ram_struct.text_size - 1){
         start_addr = registers[EIP].dword;
 
         uint8_t instr_buff[MAX_INSTR_LENGTH];

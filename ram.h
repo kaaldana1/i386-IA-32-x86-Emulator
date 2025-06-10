@@ -30,9 +30,9 @@ int initialize_ram(Program *p) {
     ram_struct.text_size = p->program_length; // Max index would be prog_len-1
 
 
-    ram_struct.stack_base = ram_struct.text_size; // will need to change this 
+    ram_struct.stack_base = HIGHEST_ADDRESS;
                                                     // to also include global/static data
-    ram_struct.heap_base = HIGHEST_ADDRESS;
+    ram_struct.heap_base = (uint16_t)ram_struct.text_size;
     return 1;
 }
 
