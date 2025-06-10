@@ -5,7 +5,7 @@ int execute_ADD_RM8_R8(Instruction *decoded_instr){
 }
 
 int execute_ADD_RM32_R32 (Instruction *decoded_instr) { 
-
+    printf("Executing ADDRM32R32...\n");
     return 1; 
 }
 

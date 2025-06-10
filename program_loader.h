@@ -3,14 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <stdint.h>
+#include <stdbool.h>
 typedef struct {
     uint8_t *program;
     size_t program_length;
 } Program;
 
 int parse_file(Program *p) {
-
     FILE *fptr = fopen("hex_code.txt", "rb");
     if ( fptr == NULL ) { printf("Lmao no"); exit(1); }
 
