@@ -1,7 +1,6 @@
 #ifndef CPU_H
 #define CPU_H
 
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -21,7 +20,7 @@
 #define CH 1
 #endif
 
-#ifdef BIG_ENDIAN_SYS 
+#ifdef BIG_ENDIAN_SYS
 #define DL 1
 #define DH 0
 #define AL 1
@@ -48,12 +47,20 @@
 #define CH ((ECX >> 8) & 0xFF)
 */
 
-typedef enum {
- EAX, EBX, ECX, ESP,
- EBP, EDI, ESI, EDX,
- EIP
+typedef enum
+{
+    EAX,
+    EBX,
+    ECX,
+    ESP,
+    EBP,
+    EDI,
+    ESI,
+    EDX,
+    EIP
 } Register_type;
-typedef union {
+typedef union
+{
     uint32_t dword;
     uint16_t word[2];
     uint8_t byte[4];

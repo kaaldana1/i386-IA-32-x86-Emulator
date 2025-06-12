@@ -2,9 +2,11 @@
 extern uint8_t ram_16kb[RAM_SIZE];
 extern int initialize_ram(Program *program);
 
-int interpreter() {
+int interpreter()
+{
     int start_addr;
-    while (registers[EIP].dword < (uint32_t)ram_struct.text_size - 1){
+    while (registers[EIP].dword < (uint32_t)ram_struct.text_size - 1)
+    {
         start_addr = registers[EIP].dword;
 
         uint8_t instr_buff[MAX_INSTR_LENGTH];
@@ -15,20 +17,21 @@ int interpreter() {
         Instruction *decoded_instruction = decoder(instr_buff);
         registers[EIP].byte[0] = decoded_instruction->total_length;
 
-        #ifdef DEBUG
-            printf("\nTotal instruction length: %hu\n", decoded_instruction->total_length);
-        #endif
+#ifdef DEBUG
+        printf("\nTotal instruction length: %hu\n", decoded_instruction->total_length);
+#endif
 
-        if((*execution_handler_lut[decoded_instruction->opcode_id]) (decoded_instruction)) {
+        if ((*execution_handler_lut[decoded_instruction->opcode_id])(decoded_instruction))
+        {
             printf("\nExecution complete\n");
         }
-        
     }
 
     return 1;
 }
 
-int initialize(Program *program) {
+int initialize(Program *program)
+{
 
     parse_file(program);
     initialize_ram(program);
@@ -39,14 +42,16 @@ int initialize(Program *program) {
     return 1;
 }
 
-
-int main() {
+int main()
+{
     Program test;
-    if (initialize(&test)) {
+    if (initialize(&test))
+    {
         print_contents(&test);
     }
 
-    if(interpreter()) {
+    if (interpreter())
+    {
         printf("\nyay");
     }
     return 0;
