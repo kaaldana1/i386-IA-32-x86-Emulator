@@ -1,8 +1,8 @@
 CC=gcc
 CFLAGS=-DDEBUG -g
 
-x86emulator: decoder.o execute.o x86_emulator.o 
-	$(CC) -o c.out decoder.o execute.o x86_emulator.o
+x86emulator: program_loader.o decoder.o execute.o memory.o x86_emulator.o 
+	$(CC) -o c.out program_loader.o decoder.o execute.o memory.o x86_emulator.o
 
 clean:
 	rm -f *.o *.out

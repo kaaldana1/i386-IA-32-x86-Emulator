@@ -5,7 +5,7 @@ extern int initialize_ram(Program *program);
 int interpreter()
 {
     int start_addr;
-    while (registers[EIP].dword < (uint32_t)ram_struct.text_size - 1)
+    while (registers[EIP].dword < (uint32_t)ram_map.text_size - 1)
     {
         start_addr = registers[EIP].dword;
 
@@ -13,7 +13,7 @@ int interpreter()
         memset(instr_buff, 0x00, sizeof(instr_buff));
 
         // Assume MAX instruction length, and truncate accordingly
-        memcpy(instr_buff, ((ram_16kb + ram_struct.text_base) + start_addr), 15);
+        memcpy(instr_buff, ((ram_16kb + ram_map.text_base) + start_addr), 15);
         Instruction *decoded_instruction = decoder(instr_buff);
         registers[EIP].byte[0] = decoded_instruction->total_length;
 
@@ -36,8 +36,8 @@ int initialize(Program *program)
     parse_file(program);
     initialize_ram(program);
 
-    registers[EIP].dword = (uint32_t)ram_struct.text_base;
-    registers[ESP].dword = (uint32_t)ram_struct.stack_base;
+    registers[EIP].dword = (uint32_t)ram_map.text_base;
+    registers[ESP].dword = (uint32_t)ram_map.stack_base;
 
     return 1;
 }
@@ -52,7 +52,12 @@ int main()
 
     if (interpreter())
     {
-        printf("\nyay");
+        printf("\nyay\n");
     }
+
+    uint8_t value;
+    memory_read_byte(&value, KEYBOARD_PORT);
+    memory_write_byte(value, CONSOLE_PORT);
+
     return 0;
 }

@@ -6,7 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define DEBUG
 #define LITTLE_ENDIAN_SYS
 
 #ifdef LITTLE_ENDIAN_SYS
