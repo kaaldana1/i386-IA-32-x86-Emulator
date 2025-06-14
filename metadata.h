@@ -21,46 +21,66 @@
 #define NO_SIB false
 #define NO_DISPLACEMENT false
 
-#define md_ADD_RM8_R8  {HAS_MODRM,  NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
-#define md_ADD_RM32_R32  {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, MEM_TO_REG}
-#define md_ADD_R32_RM32  {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
-#define md_ADD_AL_IMM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2 , REG_TO_MEM}
-#define md_ADD_EAX_IMM32  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM} //change
-#define md_ADD_R8_RM8  {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM} //change
+#define md_ADD_RM8_R8 {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
+#define md_ADD_RM32_R32 {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, MEM_TO_REG}
+#define md_ADD_R32_RM32 {HAS_MODRM, NO_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
+#define md_ADD_AL_IMM8 {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}
+#define md_ADD_EAX_IMM32 {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM} // change
+#define md_ADD_R8_RM8 {NO_MODRM, HAS_IMMEDIATE, NO_SIB, NO_DISPLACEMENT, 2, REG_TO_MEM}    // change
 
 //---- LUTs for OPCODES----
 //=========================
-typedef enum {
+typedef enum
+{
 
-    ADD_RM8_R8, ADD_RM32_R32, ADD_R8_RM8,
-    ADD_R32_RM32, ADD_AL_IMM8, ADD_EAX_IMM32,
+    ADD_RM8_R8,
+    ADD_RM32_R32,
+    ADD_R8_RM8,
+    ADD_R32_RM32,
+    ADD_AL_IMM8,
+    ADD_EAX_IMM32,
 
     INVALID,
 
-    ADC_RM8_R8, ADC_RM32_R32, ADC_R8_RM8,
-    ADC_R32_RM32, ADC_AL_IMM8, ADC_EAX_IMM32,
+    ADC_RM8_R8,
+    ADC_RM32_R32,
+    ADC_R8_RM8,
+    ADC_R32_RM32,
+    ADC_AL_IMM8,
+    ADC_EAX_IMM32,
 
+    AND_RM8_R8,
+    AND_RM32_R32,
+    AND_R8_RM8,
+    AND_R32_RM32,
+    AND_AL_IMM8,
+    AND_EAX_IMM32,
 
-    AND_RM8_R8, AND_RM32_R32, AND_R8_RM8,
-    AND_R32_RM32, AND_AL_IMM8, AND_EAX_IMM32,
+    XOR_RM8_R8,
+    XOR_RM32_R32,
+    XOR_R8_RM8,
+    XOR_R32_RM32,
+    XOR_AL_IMM8,
+    XOR_EAX_IMM32,
 
-    XOR_RM8_R8, XOR_RM32_R32, XOR_R8_RM8,
-    XOR_R32_RM32, XOR_AL_IMM8, XOR_EAX_IMM32,
-    
-    NOP, 
+    NOP,
 
-    MOV_R32_IMM32, MOV_RM32_R32, MOVE_R32_RM32,
+    MOV_R32_IMM32,
+    MOV_RM32_R32,
+    MOVE_R32_RM32,
 
     SUB_EAX_IMM32,
-    PUSH_EAX, PUSH_IMM8, 
-    POP_EAX, POP_R32,
+    PUSH_EAX,
+    PUSH_IMM8,
+    POP_EAX,
+    POP_R32,
     JMP_REL32,
     CALL_REL32,
     RET
 } Opcode_ID;
 
-
-typedef struct {
+typedef struct
+{
     bool has_modrm;
     bool has_immediate;
     bool has_sib;
@@ -69,10 +89,8 @@ typedef struct {
     int operand_type;
 } Instruction_metadata;
 
-
 static const Instruction_metadata instr_metadata_lut[6] = { // also indexed by opcode id
-    md_ADD_RM8_R8, md_ADD_RM32_R32, md_ADD_R8_RM8, 
-    md_ADD_R32_RM32, md_ADD_AL_IMM8, md_ADD_EAX_IMM32
-};
+    md_ADD_RM8_R8, md_ADD_RM32_R32, md_ADD_R8_RM8,
+    md_ADD_R32_RM32, md_ADD_AL_IMM8, md_ADD_EAX_IMM32};
 
 #endif
