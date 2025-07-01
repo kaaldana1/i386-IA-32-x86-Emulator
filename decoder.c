@@ -1,6 +1,6 @@
 #include "decoder.h"
 
-Instruction *decoder(uint8_t *single_instr)
+Instruction *decoder(uint8_t *encoded_instr)
 {
     Instruction *decoded_instr = malloc(sizeof(Instruction));
     if (decoded_instr == NULL)
@@ -15,7 +15,7 @@ Instruction *decoder(uint8_t *single_instr)
     while (byte_p < MAX_PREFIX_LENGTH)
     {
         bool add_byte = true;
-        switch (single_instr[byte_p])
+        switch (encoded_instr[byte_p])
         {
         case OPERAND_SIZE_OVERRIDE:
             decoded_instr->has_operand_size_override = true;
@@ -41,7 +41,7 @@ Instruction *decoder(uint8_t *single_instr)
 
         if (add_byte)
         {
-            put_byte(decoded_instr, FIELD_PREFIX, single_instr[byte_p]);
+            put_byte(decoded_instr, FIELD_PREFIX, encoded_instr[byte_p]);
             byte_p++;
         }
         else
@@ -55,11 +55,11 @@ Instruction *decoder(uint8_t *single_instr)
     while (byte_p < MAX_OPCODE_LENGTH + return_p)
     {
         // use lookup table
-        if (!(single_instr[byte_p] == MULT_BYTE_FLAG))
+        if (!(encoded_instr[byte_p] == MULT_BYTE_FLAG))
         {
-            Opcode_ID opcode = single_byte_opcode_lut[single_instr[byte_p]];
+            Opcode_ID opcode = single_byte_opcode_lut[encoded_instr[byte_p]];
 
-            put_byte(decoded_instr, FIELD_OPCODE, single_instr[byte_p]);
+            put_byte(decoded_instr, FIELD_OPCODE, encoded_instr[byte_p]);
             byte_p++;
             decoded_instr->opcode_id = opcode;
 
@@ -80,7 +80,7 @@ Instruction *decoder(uint8_t *single_instr)
 
     if (instr_metadata_lut[decoded_instr->opcode_id].has_modrm)
     {
-        put_byte(decoded_instr, FIELD_MODRM, single_instr[byte_p]);
+        put_byte(decoded_instr, FIELD_MODRM, encoded_instr[byte_p]);
         byte_p++;
 
         uint8_t mod = (((decoded_instr->modrm) >> 6) & 0xFF);
@@ -94,41 +94,51 @@ Instruction *decoder(uint8_t *single_instr)
         decoded_instr->rm_field = rm_field;
 
 #ifdef DEBUG
-        printf("Has Imm: %d\n", instr_metadata_lut[decoded_instr->opcode_id].has_immediate);
+        printf("Has Imm: %zu\n", instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes);
         printf("Modrm byte: %02x\n", decoded_instr->modrm);
 
         printf("Mod: %02x\n", decoded_instr->mod);
         printf("reg_or_opcode: %02x\n", decoded_instr->reg_or_opcode);
         printf("rm_field: %02x\n", decoded_instr->rm_field);
 
-        printf("Addressing form: Reg 1: %d   .  Reg 2: %d", decoded_instr->operands.reg_1, decoded_instr->operands.reg_2);
+        printf("Addressing form: Reg 1: %d   .  Reg 2: %d", decoded_instr->operands.effective_addr_register, decoded_instr->operands.src_register);
 #endif
     }
 
-    if (instr_metadata_lut[decoded_instr->opcode_id].has_sib)
+    return_p = byte_p;
+
+    if (decoded_instr->sib_length != 0)
     {
     }
 
-    if (instr_metadata_lut[decoded_instr->opcode_id].has_displacement)
+    return_p = byte_p;
+
+    if (decoded_instr->displacement_length != 0)
     {
         while (byte_p < MAX_DISPLACEMENT_LENGTH)
         {
         }
     }
 
-    if (instr_metadata_lut[decoded_instr->opcode_id].has_immediate)
+    return_p = byte_p;
+
+    if (instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes != 0) 
     {
-        while (byte_p < MAX_IMMEDIATE_LENGTH)
+        while (byte_p < instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes + return_p) 
         {
+            put_byte(decoded_instr, FIELD_IMMEDIATE, encoded_instr[byte_p]);
+            byte_p++;
         }
     }
 
-    decoded_instr->total_length = decoded_instr->displacement_length +
-                                  decoded_instr->modrm_length +
+    return_p = byte_p;
+
+    decoded_instr->total_length = decoded_instr->modrm_length +
                                   decoded_instr->opcode_length +
                                   decoded_instr->sib_length +
                                   decoded_instr->prefix_length +
-                                  decoded_instr->displacement_length;
+                                  decoded_instr->displacement_length + 
+                                  decoded_instr->immediate_length; 
 
     return decoded_instr;
 }

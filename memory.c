@@ -45,6 +45,15 @@ int memory_write_dword(uint32_t value, uint32_t address)
     memory_write_byte((0xFF & (value >> 8)), address);
     memory_write_byte((0xFF & (value >> 16)), address);
     memory_write_byte((0xFF & (value >> 24)), address);
+
+#ifdef DEBUG
+    printf("Wrote word: \n");
+    for (size_t i = (uint32_t)address; i < (uint32_t)address + 5; i++) {
+        printf("%02x  ", ram_16kb[i]);
+    }
+    printf("\n");
+#endif
+
     return 1;
 }
 

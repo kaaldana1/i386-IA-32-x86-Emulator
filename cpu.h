@@ -56,7 +56,8 @@ typedef enum
     EDI,
     ESI,
     EDX,
-    EIP
+    EIP,
+    R_PLACEHOLDER
 } Register_type;
 typedef union
 {
@@ -65,6 +66,6 @@ typedef union
     uint8_t byte[4];
 } Register;
 
-Register registers[GPR_AMOUNT];
+Register registers[GPR_AMOUNT]; //indexed by Register_type
 
 #endif

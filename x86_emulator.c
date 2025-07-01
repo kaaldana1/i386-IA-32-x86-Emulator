@@ -5,7 +5,7 @@ extern int initialize_ram(Program *program);
 int interpreter()
 {
     int start_addr;
-    while (registers[EIP].dword < (uint32_t)ram_map.text_size - 1)
+    while (registers[EIP].dword < (uint32_t)ram_map.text_size)
     {
         start_addr = registers[EIP].dword;
 
@@ -15,7 +15,7 @@ int interpreter()
         // Assume MAX instruction length, and truncate accordingly
         memcpy(instr_buff, ((ram_16kb + ram_map.text_base) + start_addr), 15);
         Instruction *decoded_instruction = decoder(instr_buff);
-        registers[EIP].byte[0] = decoded_instruction->total_length;
+        registers[EIP].byte[0] += decoded_instruction->total_length;
 
 #ifdef DEBUG
         printf("\nTotal instruction length: %hu\n", decoded_instruction->total_length);
