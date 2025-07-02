@@ -43,7 +43,7 @@ typedef struct
 } Operand_addressing_form;
 
 // these are indexed by REG and RM values
-static const Operand_addressing_form operand_addr_form_lut[MODRM_MOD_COUNT][MODRM_REG_COUNT][MODRM_RM_COUNT] = {
+static const Operand_addressing_form operand_addr_form_lut[MODRM_MOD_COUNT][MODRM_RM_COUNT][MODRM_REG_COUNT] = {
     {
      {{EAX, EAX}, {EAX, ECX}, {EAX, EDX}, {EAX, EBX}, {EAX, ESP}, {EAX, EBP}, {EAX, ESI}, {EAX, EDI} },
      {{ECX, EAX}, {ECX, ECX}, {ECX, EDX}, {ECX, EBX}, {ECX, ESP}, {ECX, EBP}, {ECX, ESI}, {ECX, EDI} },

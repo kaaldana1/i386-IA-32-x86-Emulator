@@ -35,20 +35,20 @@ int memory_write_byte(uint8_t value, uint32_t address)
 int memory_write_word(uint16_t value, uint32_t address) 
 {
     memory_write_byte((0xFF & value), address);
-    memory_write_byte((0xFF & (value >> 8)), address);
+    memory_write_byte((0xFF & (value >> 8)), address + 1);
     return 1;
 }
 
 int memory_write_dword(uint32_t value, uint32_t address) 
 { 
     memory_write_byte((0xFF & value), address);
-    memory_write_byte((0xFF & (value >> 8)), address);
-    memory_write_byte((0xFF & (value >> 16)), address);
-    memory_write_byte((0xFF & (value >> 24)), address);
+    memory_write_byte((0xFF & (value >> 8)), address + 1);
+    memory_write_byte((0xFF & (value >> 16)), address + 2);
+    memory_write_byte((0xFF & (value >> 24)), address + 3);
 
 #ifdef DEBUG
     printf("Wrote word: \n");
-    for (size_t i = (uint32_t)address; i < (uint32_t)address + 5; i++) {
+    for (size_t i = (size_t)address; i < (size_t)address + 5; i++) {
         printf("%02x  ", ram_16kb[i]);
     }
     printf("\n");
@@ -72,3 +72,16 @@ int memory_read_byte(uint8_t *value, uint32_t address) {
     }
 }
 
+int memory_read_dword (uint32_t *value, uint32_t address) {
+    uint8_t byte1, byte2, byte3, byte4;
+    if (!memory_read_byte(&byte1, address)) return 0;
+    if (!memory_read_byte(&byte2, address + 1)) return 0;
+    if (!memory_read_byte(&byte3, address + 2)) return 0;
+    if (!memory_read_byte(&byte4, address + 3)) return 0;
+
+    *value = (uint32_t)byte1 |
+             (uint32_t)byte2 << 8 |
+             (uint32_t)byte3 << 16 |
+             (uint32_t)byte4 << 24;
+    return 1;
+}

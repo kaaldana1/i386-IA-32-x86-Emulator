@@ -36,6 +36,7 @@ int memory_write_word(uint16_t value, uint32_t address);
 int memory_write_dword(uint32_t value, uint32_t address); 
 
 // read from keyboard input port
-int memory_read_byte( uint8_t *value, uint32_t address);
+int memory_read_byte (uint8_t *value, uint32_t address);
+int memory_read_dword (uint32_t *value, uint32_t address);
 
 #endif

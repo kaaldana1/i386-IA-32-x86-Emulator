@@ -1,18 +1,41 @@
 #include "execute.h"
 
+void print_registers() {
+    printf("==========================\n");
+    printf("REGISTER CONTENTS: \n");
+
+    printf("%02x\n", registers[0].dword);
+    printf("%02x\n", registers[1].dword);
+    printf("%02x\n", registers[2].dword);
+    printf("%02x\n", registers[3].dword);
+    printf("%02x\n", registers[4].dword);
+    printf("%02x\n", registers[5].dword);
+    printf("%02x\n", registers[6].dword);
+    printf("%02x\n", registers[7].dword);
+    printf("%02x\n", registers[8].dword);
+    printf("==========================\n");
+}
+
 int execute_ADD_RM8_R8(Instruction *decoded_instr)
 {
     return 0;
 }
 
 int execute_ADD_RM32_R32(Instruction *decoded_instr) {
+    uint32_t mem_value;
+    Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
+    memory_read_dword(&mem_value, registers[addr_form.effective_addr_register].dword);
+    uint32_t result = mem_value + registers[addr_form.src_register].dword;
+    memory_write_dword(result, registers[addr_form.effective_addr_register].dword);
 
-    Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->reg_or_opcode][decoded_instr->rm_field];
-    memory_write_dword(registers[addr_form.effective_addr_register].dword, registers[addr_form.src_register].dword); 
 #ifdef DEBUG
     printf("Executing ADDRM32R32...\n");
-    return 1;
+    print_registers();
+    printf("Mem value: %02x\n", mem_value);
+    printf("Register value: %02x\n", registers[addr_form.src_register].dword);
+    printf("Result: %02x\n", result);
 #endif
+    return 1;
 }
 
 
@@ -28,8 +51,13 @@ int execute_INVALID (Instruction *decoded_instr) { return 0; }
 int execute_MOV_R8_RM8 (Instruction *decoded_instr) { return 0; }
 
 int execute_MOV_RM32_R32 (Instruction *decoded_instr) {
+    Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
+    memory_write_dword(registers[addr_form.src_register].dword, registers[addr_form.effective_addr_register].dword); 
 #ifdef DEBUG
     printf("Executing MOV_RM32_R32...\n");
+    printf("Register source: %02x\n", registers[addr_form.src_register].dword);
+    printf("Register: %d\n", addr_form.src_register);
+    printf("EA Register: %d\n", addr_form.effective_addr_register);
 #endif
     return 1;
 }
@@ -39,9 +67,8 @@ int execute_MOV_RM8_R8 (Instruction *decoded_instr) { return 0; }
 int execute_MOV_R32_RM32 (Instruction *decoded_instr) {
 #ifdef DEBUG
     printf("Executing MOV_R32_RM32\n");
+    print_registers();
 #endif
-    Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->reg_or_opcode][decoded_instr->rm_field];
-    memory_write_dword(registers[addr_form.effective_addr_register].dword, registers[addr_form.src_register].dword); 
     return 1;
 }
 
@@ -63,6 +90,7 @@ int execute_MOV_EAX_IMM32(Instruction *decoded_instr) {
         printf(" %02x  ", decoded_instr->immediate[i]);
     }
    printf("Dword: %u\n", registers[EAX].dword);
+    print_registers();
 #endif
     return 1;
 }
@@ -75,8 +103,10 @@ int execute_MOV_ECX_IMM32 (Instruction *decoded_instr) {
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
         printf(" %02x  ", decoded_instr->immediate[i]);
     }
-    return 1;
+    printf("\n");
+    print_registers();
 #endif
+    return 1;
 }
 
 int execute_MOV_EDX_IMM32 (Instruction *decoded_instr) { return 0; }
@@ -89,8 +119,10 @@ int execute_MOV_EBX_IMM32 (Instruction *decoded_instr) {
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
         printf(" %02x  ", decoded_instr->immediate[i]);
     }
-    return 1;
+    printf("\n");
+    print_registers();
 #endif
+    return 1;
 }
 
 int execute_MOV_ESP_IMM32 (Instruction *decoded_instr) { return 0; }

@@ -38,6 +38,7 @@ int initialize(Program *program)
 
     registers[EIP].dword = (uint32_t)ram_map.text_base;
     registers[ESP].dword = (uint32_t)ram_map.stack_base;
+    print_registers();
 
     return 1;
 }
@@ -54,10 +55,6 @@ int main()
     {
         printf("\nyay\n");
     }
-
-    uint8_t value;
-    memory_read_byte(&value, KEYBOARD_PORT);
-    memory_write_byte(value, CONSOLE_PORT);
 
     return 0;
 }

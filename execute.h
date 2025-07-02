@@ -3,6 +3,7 @@
 
 #include "execute_utils.h"
 
+void print_registers();
 int execute_ADD_RM8_R8 (Instruction *decoded_instr);
 int execute_ADD_RM32_R32 (Instruction *decoded_instr);
 int execute_ADD_R8_RM8 (Instruction *decoded_instr);
