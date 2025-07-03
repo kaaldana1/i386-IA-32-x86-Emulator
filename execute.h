@@ -1,7 +1,7 @@
 #ifndef EXECUTE_H
 #define EXECUTE_H
-
-#include "execute_utils.h"
+#include "decoder.h"
+#include "memory.h"
 
 void print_registers();
 int execute_ADD_RM8_R8 (Instruction *decoded_instr);

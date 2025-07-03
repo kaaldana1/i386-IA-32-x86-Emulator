@@ -23,7 +23,10 @@ int memory_write_byte(uint8_t value, uint32_t address)
 {
     // simulating writes to console port
     if (address == CONSOLE_PORT) {
+        printf("=================================\n");
+        printf("CONSOLE PRINT:\n");
         printf("%c", (unsigned char)value);
+        printf("=================================\n");
         return 1;
     } else if (address <= HIGHEST_RAM_ADDRESS) {
         ram_16kb[address] = value;
@@ -40,11 +43,20 @@ int memory_write_word(uint16_t value, uint32_t address)
 }
 
 int memory_write_dword(uint32_t value, uint32_t address) 
-{ 
-    memory_write_byte((0xFF & value), address);
-    memory_write_byte((0xFF & (value >> 8)), address + 1);
-    memory_write_byte((0xFF & (value >> 16)), address + 2);
-    memory_write_byte((0xFF & (value >> 24)), address + 3);
+{     
+    if (address == CONSOLE_PORT) {
+        printf("=================================\n");
+        printf("CONSOLE PRINT:\n");
+        printf("%d\n", value);
+        printf("=================================\n");
+        return 1;
+    } else {
+        memory_write_byte((0xFF & value), address);
+        memory_write_byte((0xFF & (value >> 8)), address + 1);
+        memory_write_byte((0xFF & (value >> 16)), address + 2);
+        memory_write_byte((0xFF & (value >> 24)), address + 3);
+    }
+
 
 #ifdef DEBUG
     printf("Wrote word: \n");
