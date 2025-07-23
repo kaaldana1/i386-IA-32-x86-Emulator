@@ -1,23 +1,35 @@
 #include "memory.h"
 
-Ram_map ram_map;
+gdt_entry global_desc_table[FLAT_MODE_GDT_SIZE];
 uint8_t  ram_16kb[RAM_SIZE];
 uint8_t  cpu_bus[4];
 
 int initialize_ram(Program *p)
 {
     memset(ram_16kb, 0x00, sizeof(ram_16kb));
-    memset(&ram_map, 0, sizeof(Ram_map));
-    // Load text portion of ram with the hex instructions
-    ram_map.text_base = LOWEST_RAM_ADDRESS;
-    memcpy(ram_16kb + ram_map.text_base, p->program, p->program_length);
-    ram_map.text_size = p->program_length; // Max index would be prog_len-1
+    set_gdt_entry(&global_desc_table[USER_MODE_CODE_SEG], (uint32_t)LOWEST_RAM_ADDRESS, (uint32_t)p->program_length, 0xFA, 0xC);
+    set_gdt_entry(&global_desc_table[USER_MODE_DATA_SEG], (uint32_t)(LOWEST_RAM_ADDRESS + p->program_length), (uint32_t)(sizeof(ram_16kb) - p->program_length - 1), 0xF2, 0x0C);
 
-    ram_map.stack_base = HIGHEST_RAM_ADDRESS;
-    // to also include global/static data
-    ram_map.heap_base = (uint16_t)ram_map.text_size;
+    // Load text portion of ram with the hex instructions
+    memcpy(ram_16kb + global_desc_table[USER_MODE_CODE_SEG].base_low, p->program, p->program_length);
+
     return 1;
 }
+
+
+int set_gdt_entry(gdt_entry *entry, uint32_t base, uint32_t limit, uint8_t access, uint8_t flags) {
+    memset(entry, 0, sizeof(gdt_entry));
+    entry->base_low = base & 0xFFFF;
+    entry->base_mid = (base >> 16) & 0xFF;
+    entry->base_high = (base >> 24) & 0xFF;
+
+    entry->limit_low = limit & 0xFFFF;
+    entry->flag_limit_high =  ((flags & 0x0F) << 4) | ((limit >> 16) & 0x0F);
+
+    entry->access_byte = access;
+    return 0;
+}
+
 
 int memory_write_byte(uint8_t value, uint32_t address)
 {

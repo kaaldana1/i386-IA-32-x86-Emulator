@@ -12,12 +12,12 @@
 #define ADDR_SIZE_OVERRIDE 0x67
 #define REP_REPE 0xF3
 #define LOCK 0xF0
-#define CS 0x2E
-#define SS 0x36
-#define DS 0x3E
-#define ES 0x26
-#define FS 0x64
-#define GS 0x65
+// #define CS 0x2E
+// #define SS 0x36
+// #define DS 0x3E
+// #define ES 0x26
+// #define FS 0x64
+// #define GS 0x65
 
 #define MAX_INSTR_LENGTH 15
 #define MAX_PREFIX_LENGTH 4
@@ -38,8 +38,8 @@
 
 typedef struct
 {
-    Register_type effective_addr_register;
-    Register_type src_register;
+    gen_purpose_reg_type effective_addr_register;
+    gen_purpose_reg_type src_register;
 } Operand_addressing_form;
 
 // these are indexed by REG and RM values

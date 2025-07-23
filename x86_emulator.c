@@ -2,20 +2,25 @@
 extern uint8_t ram_16kb[RAM_SIZE];
 extern int initialize_ram(Program *program);
 
+
 int interpreter()
 {
     int start_addr;
-    while (registers[EIP].dword < (uint32_t)ram_map.text_size)
+    uint16_t CS_index = seg_reg_index(&segment_registers[CS]);
+    uint32_t CS_limit = gdt_limit(&global_desc_table[CS_index]);
+    uint32_t CS_base = gdt_base(&global_desc_table[CS_index]);
+
+    while (gen_purpose_registers[EIP].dword < CS_limit)
     {
-        start_addr = registers[EIP].dword;
+        start_addr = gen_purpose_registers[EIP].dword;
 
         uint8_t instr_buff[MAX_INSTR_LENGTH];
         memset(instr_buff, 0x00, sizeof(instr_buff));
 
         // Assume MAX instruction length, and truncate accordingly
-        memcpy(instr_buff, ((ram_16kb + ram_map.text_base) + start_addr), 15);
+        memcpy(instr_buff, ((ram_16kb + CS_base) + start_addr), 15);
         Instruction *decoded_instruction = decoder(instr_buff);
-        registers[EIP].byte[0] += decoded_instruction->total_length;
+        gen_purpose_registers[EIP].byte[0] += decoded_instruction->total_length;
 
 #ifdef DEBUG
         printf("\nTotal instruction length: %hu\n", decoded_instruction->total_length);
@@ -32,12 +37,11 @@ int interpreter()
 
 int initialize(Program *program)
 {
-
     parse_file(program);
     initialize_ram(program);
+    initialize_segment_registers();
+    initialize_gen_purpose_registers();
 
-    registers[EIP].dword = (uint32_t)ram_map.text_base;
-    registers[ESP].dword = (uint32_t)ram_map.stack_base;
     print_registers();
 
     return 1;

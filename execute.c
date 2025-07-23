@@ -4,15 +4,15 @@ void print_registers() {
     printf("==========================\n");
     printf("REGISTER CONTENTS: \n");
 
-    printf("%02x\n", registers[0].dword);
-    printf("%02x\n", registers[1].dword);
-    printf("%02x\n", registers[2].dword);
-    printf("%02x\n", registers[3].dword);
-    printf("%02x\n", registers[4].dword);
-    printf("%02x\n", registers[5].dword);
-    printf("%02x\n", registers[6].dword);
-    printf("%02x\n", registers[7].dword);
-    printf("%02x\n", registers[8].dword);
+    printf("EAX: %02x\n", gen_purpose_registers[0].dword);
+    printf("EBX: %02x\n", gen_purpose_registers[1].dword);
+    printf("ECX: %02x\n", gen_purpose_registers[2].dword);
+    printf("ESP: %02x\n", gen_purpose_registers[3].dword);
+    printf("EBP: %02x\n", gen_purpose_registers[4].dword);
+    printf("EDI: %02x\n", gen_purpose_registers[5].dword);
+    printf("ESI: %02x\n", gen_purpose_registers[6].dword);
+    printf("EDX: %02x\n", gen_purpose_registers[7].dword);
+    printf("EIP: %02x\n", gen_purpose_registers[8].dword);
     printf("==========================\n");
 }
 
@@ -25,15 +25,15 @@ int execute_ADD_RM32_R32(Instruction *decoded_instr) {
     printf("========Executing ADD_RM32_R32...============\n");
     uint32_t mem_value = 0;
     Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
-    memory_read_dword(&mem_value, registers[addr_form.effective_addr_register].dword);
-    uint32_t result = mem_value + registers[addr_form.src_register].dword;
-    memory_write_dword(result, registers[addr_form.effective_addr_register].dword);
+    memory_read_dword(&mem_value, gen_purpose_registers[addr_form.effective_addr_register].dword);
+    uint32_t result = mem_value + gen_purpose_registers[addr_form.src_register].dword;
+    memory_write_dword(result, gen_purpose_registers[addr_form.effective_addr_register].dword);
 
 #ifdef DEBUG
     print_registers();
-    printf("Effective address: %02x\n", registers[addr_form.effective_addr_register].dword);
+    printf("Effective address: %02x\n", gen_purpose_registers[addr_form.effective_addr_register].dword);
     printf("Mem value: %02x\n", mem_value);
-    printf("Register value: %02x\n", registers[addr_form.src_register].dword);
+    printf("Register value: %02x\n", gen_purpose_registers[addr_form.src_register].dword);
     printf("Result: %02x\n", result);
     printf("===================DONE======================\n");
 #endif
@@ -56,9 +56,9 @@ int execute_MOV_R8_RM8 (Instruction *decoded_instr) { return 0; }
 int execute_MOV_RM32_R32 (Instruction *decoded_instr) {
     printf("========Executing MOV_RM32_R32...============\n");
     Operand_addressing_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
-    memory_write_dword(registers[addr_form.src_register].dword, registers[addr_form.effective_addr_register].dword); 
+    memory_write_dword(gen_purpose_registers[addr_form.src_register].dword, gen_purpose_registers[addr_form.effective_addr_register].dword); 
 #ifdef DEBUG
-    printf("Register source: %02x\n", registers[addr_form.src_register].dword);
+    printf("Register source: %02x\n", gen_purpose_registers[addr_form.src_register].dword);
     printf("Register: %d\n", addr_form.src_register);
     printf("EA Register: %d\n", addr_form.effective_addr_register);
     printf("===================DONE======================\n");
@@ -87,13 +87,13 @@ int execute_MOV_R8_IMM8 (Instruction *decoded_instr) { return 0; }
 
 int execute_MOV_EAX_IMM32(Instruction *decoded_instr) {
     printf("========Executing MOV_EAX_IMM32...============\n");
-   registers[EAX].dword = *(uint32_t*)decoded_instr->immediate;
+   gen_purpose_registers[EAX].dword = *(uint32_t*)decoded_instr->immediate;
 #ifdef DEBUG
     printf("Immediate bytes: \n");
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
         printf(" %02x  ", decoded_instr->immediate[i]);
     }
-   printf("Dword: %u\n", registers[EAX].dword);
+   printf("Dword: %u\n", gen_purpose_registers[EAX].dword);
     print_registers();
     printf("===================DONE======================\n");
 #endif
@@ -102,7 +102,7 @@ int execute_MOV_EAX_IMM32(Instruction *decoded_instr) {
 
 int execute_MOV_ECX_IMM32 (Instruction *decoded_instr) {
     printf("========Executing MOV_ECX_IMM32...============\n");
-   registers[ECX].dword = *(uint32_t*)decoded_instr->immediate;
+   gen_purpose_registers[ECX].dword = *(uint32_t*)decoded_instr->immediate;
 #ifdef DEBUG
     printf("Immediate bytes: \n");
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
@@ -119,7 +119,7 @@ int execute_MOV_EDX_IMM32 (Instruction *decoded_instr) { return 0; }
 
 int execute_MOV_EBX_IMM32 (Instruction *decoded_instr) { 
     printf("========Executing MOV_EBX_IMM32...============\n");
-   registers[EBX].dword = *(uint32_t*)decoded_instr->immediate;
+   gen_purpose_registers[EBX].dword = *(uint32_t*)decoded_instr->immediate;
 #ifdef DEBUG
     printf("Immediate bytes: \n");
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
