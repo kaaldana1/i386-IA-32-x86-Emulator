@@ -1,16 +1,17 @@
 #include "x86_emulator.h"
 extern uint8_t ram_16kb[RAM_SIZE];
+extern gdt_entry global_desc_table[FLAT_MODE_GDT_SIZE];
 extern int initialize_ram(Program *program);
 
 
 int interpreter()
 {
     int start_addr;
-    uint16_t CS_index = seg_reg_index(&segment_registers[CS]);
-    uint32_t CS_limit = gdt_limit(&global_desc_table[CS_index]);
-    uint32_t CS_base = gdt_base(&global_desc_table[CS_index]);
+    uint16_t CS_index = get_seg_reg_index(&segment_registers[CS]);
+    uint32_t CS_limit = get_gdt_limit(&global_desc_table[CS_index]);
+    uint32_t CS_base = get_gdt_base(&global_desc_table[CS_index]);
 
-    while (gen_purpose_registers[EIP].dword < CS_limit)
+    while (gen_purpose_registers[EIP].dword < (CS_base + CS_limit) && !halt_flag)
     {
         start_addr = gen_purpose_registers[EIP].dword;
 
@@ -18,7 +19,7 @@ int interpreter()
         memset(instr_buff, 0x00, sizeof(instr_buff));
 
         // Assume MAX instruction length, and truncate accordingly
-        memcpy(instr_buff, ((ram_16kb + CS_base) + start_addr), 15);
+        memcpy(instr_buff, (ram_16kb + start_addr), 15);
         Instruction *decoded_instruction = decoder(instr_buff);
         gen_purpose_registers[EIP].byte[0] += decoded_instruction->total_length;
 
@@ -38,6 +39,7 @@ int interpreter()
 int initialize(Program *program)
 {
     parse_file(program);
+    create_gdt();
     initialize_ram(program);
     initialize_segment_registers();
     initialize_gen_purpose_registers();

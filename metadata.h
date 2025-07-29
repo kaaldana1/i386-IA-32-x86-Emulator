@@ -20,14 +20,14 @@
 #define NO_MODRM false
 #define PLACEHOLDER 0 
 
-#include "meta.h"
+#include "opcode_list.h"
 
 //---- LUTs for OPCODES----
 //=========================
 #undef X
 typedef enum
 {
-#define X(name, _1, _2, _3, _4) name,
+#define X(name, _1, _2, _3, _4, _5) name,
     FOREACH_OPCODE(X)
 #undef X
 OPCODE_COUNT
@@ -43,7 +43,7 @@ typedef struct
 
 
 static const Instruction_metadata instr_metadata_lut[OPCODE_COUNT] = { // also indexed by opcode id
-#define X(_name, has_modrm, imm_bytes, operand_count, operand_type) {has_modrm, imm_bytes, operand_count, operand_type},
+#define X(_name, _op_byte, has_modrm, imm_bytes, operand_count, operand_type) {has_modrm, imm_bytes, operand_count, operand_type},
     FOREACH_OPCODE(X)
 #undef X
 };

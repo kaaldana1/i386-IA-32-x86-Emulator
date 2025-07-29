@@ -81,6 +81,9 @@ GPRegister gen_purpose_registers[GPR_AMOUNT]; //indexed by gpr_type
         Used at PUSH, POP, CALL, RET, ENTER/LEAVE, or any addressing mode whose base register
         is ESP or EBP
 
+    CS must load a code descriptor (S = 1, bit 3 = 1)
+    SS must load writable data descriptor (S = 1, bit 1 =:1)
+
 */
 
 typedef enum {
@@ -94,17 +97,18 @@ typedef union {
 
 SRegister segment_registers[SR_AMOUNT]; //indexed by gpr_type 
 
-static inline uint16_t seg_reg_index(const SRegister *reg) {
+static inline uint32_t get_base(const SRegister *reg) {
+    return (uint32_t)((reg->word) << 4);
+}
+
+static inline void load_seg_reg(uint16_t source, SRegister *reg) {
+    reg->word = source;
+}
+
+static inline uint16_t get_seg_reg_index(const SRegister *reg) {
     return reg->word >> 3;
 }
 
-static inline uint32_t gdt_limit(const gdt_entry *entry) {
-    return (uint32_t)entry->limit_low | (((uint32_t)entry->flag_limit_high & 0x0F ) << 16);
-}
-
-static inline uint32_t gdt_base(const gdt_entry *entry) {
-    return (uint32_t)entry->base_low | ((uint32_t)entry->base_mid << 16) | ((uint32_t)entry->base_high << 24);
-}
 
 int initialize_gen_purpose_registers();
 int initialize_segment_registers();

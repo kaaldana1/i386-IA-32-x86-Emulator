@@ -7,28 +7,13 @@ uint8_t  cpu_bus[4];
 int initialize_ram(Program *p)
 {
     memset(ram_16kb, 0x00, sizeof(ram_16kb));
-    set_gdt_entry(&global_desc_table[USER_MODE_CODE_SEG], (uint32_t)LOWEST_RAM_ADDRESS, (uint32_t)p->program_length, 0xFA, 0xC);
-    set_gdt_entry(&global_desc_table[USER_MODE_DATA_SEG], (uint32_t)(LOWEST_RAM_ADDRESS + p->program_length), (uint32_t)(sizeof(ram_16kb) - p->program_length - 1), 0xF2, 0x0C);
 
     // Load text portion of ram with the hex instructions
-    memcpy(ram_16kb + global_desc_table[USER_MODE_CODE_SEG].base_low, p->program, p->program_length);
+    memcpy(ram_16kb + get_gdt_base(&global_desc_table[USER_MODE_CODE_SEG]), p->program, p->program_length);
 
     return 1;
 }
 
-
-int set_gdt_entry(gdt_entry *entry, uint32_t base, uint32_t limit, uint8_t access, uint8_t flags) {
-    memset(entry, 0, sizeof(gdt_entry));
-    entry->base_low = base & 0xFFFF;
-    entry->base_mid = (base >> 16) & 0xFF;
-    entry->base_high = (base >> 24) & 0xFF;
-
-    entry->limit_low = limit & 0xFFFF;
-    entry->flag_limit_high =  ((flags & 0x0F) << 4) | ((limit >> 16) & 0x0F);
-
-    entry->access_byte = access;
-    return 0;
-}
 
 
 int memory_write_byte(uint8_t value, uint32_t address)

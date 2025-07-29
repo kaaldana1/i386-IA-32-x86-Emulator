@@ -1,5 +1,7 @@
 #include "execute.h"
 
+bool halt_flag = 0;
+
 void print_registers() {
     printf("==========================\n");
     printf("REGISTER CONTENTS: \n");
@@ -15,6 +17,7 @@ void print_registers() {
     printf("EIP: %02x\n", gen_purpose_registers[8].dword);
     printf("==========================\n");
 }
+
 
 int execute_ADD_RM8_R8(Instruction *decoded_instr)
 {
@@ -139,30 +142,9 @@ int execute_MOV_EDI_IMM32 (Instruction *decoded_instr) { return 0; }
 
 
 
-int execute_ADC_RM8_R8(Instruction *decoded_instr) { return 0; }
-int execute_ADC_RM32_R32(Instruction *decoded_instr) { return 0; }
-int execute_ADC_R8_RM8(Instruction *decoded_instr) { return 0; }
-int execute_ADC_R32_RM32(Instruction *decoded_instr) { return 0; }
-int execute_ADC_AL_IMM8(Instruction *decoded_instr) { return 0; }
-int execute_ADC_EAX_IMM32(Instruction *decoded_instr) { return 0; }
-int execute_AND_RM8_R8(Instruction *decoded_instr) { return 0; }
-int execute_AND_RM32_R32(Instruction *decoded_instr) { return 0; }
-int execute_AND_R8_RM8(Instruction *decoded_instr) { return 0; }
-int execute_AND_R32_RM32(Instruction *decoded_instr) { return 0; }
-int execute_AND_AL_IMM8 (Instruction *decoded_instr) { return 0; }
-int execute_AND_EAX_IMM32 (Instruction *decoded_instr) { return 0; }
-int execute_XOR_RM8_R8 (Instruction *decoded_instr) { return 0; }
-int execute_XOR_RM32_R32(Instruction *decoded_instr) { return 0; }
-int execute_XOR_R8_RM8(Instruction *decoded_instr) { return 0; }
-int execute_XOR_R32_RM32(Instruction *decoded_instr) { return 0; }
-int execute_XOR_AL_IMM8(Instruction *decoded_instr) { return 0; }
-int execute_XOR_EAX_IMM32(Instruction *decoded_instr) { return 0; }
-int execute_NOP (Instruction *decoded_instr) { return 0; }
-int execute_SUB_EAX_IMM32 (Instruction *decoded_instr) { return 0; }
-int execute_PUSH_EAX (Instruction *decoded_instr) { return 0; }
-int execute_PUSH_IMM8 (Instruction *decoded_instr) { return 0; }
-int execute_POP_EAX (Instruction *decoded_instr) { return 0; }
-int execute_POP_R32 (Instruction *decoded_instr) { return 0; }
-int execute_JMP_REL32 (Instruction *decoded_instr) { return 0; }
-int execute_CALL_REL32 (Instruction *decoded_instr) { return 0; }
-int execute_RET (Instruction *decoded_instr) { return 0; }
+int execute_HLT (Instruction *decoded_instr) {
+    // raise HLT flag
+    halt_flag = 1;
+    printf("\nProgram HALTED\n");
+    return 1;
+}
