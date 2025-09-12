@@ -81,8 +81,9 @@ int console_read_stub(void *device, uint32_t *value, uint32_t address)
 int console_write(void *device, uint32_t data, uint32_t addr) 
 {
     (void)device; addr = 0;
-    printf("CONSOLE PRINT: ");
-    printf("%d\n", data);
+    printf("\t+----------------+\n");
+    printf("\t| CONSOLE PRINT: | %d\n", data);
+    printf("\t+----------------+\n");
     return 1;
 }
 

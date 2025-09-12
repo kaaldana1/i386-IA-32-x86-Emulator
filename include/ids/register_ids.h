@@ -3,8 +3,8 @@
 
 typedef enum
 {
-    EAX, EBX, ECX, ESP, EBP,
-    EDI, ESI, EDX, EIP,
+    EAX, ECX, EDX, EBX, EIP,
+    EBP, ESI, EDI, ESP
 } GPR_type;
 
 typedef enum 

@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include "hardware_sim/bus.h"
+#include "structs/flag_policy.h"
 
 #define SR_AMOUNT 6
 #define GPR_AMOUNT 9
@@ -38,6 +39,7 @@ typedef struct {
 struct CPU {
     GPR gen_purpose_registers[GPR_AMOUNT]; //indexed by gpr_type 
     SR segment_registers[SR_AMOUNT]; //indexed by gpr_type 
+    uint16_t status_register; 
     GDTR gdtr;
     bool halt;
 }; 

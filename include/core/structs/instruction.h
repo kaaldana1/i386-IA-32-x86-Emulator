@@ -32,6 +32,7 @@ typedef struct {
     Operand_addr_form operands;
 
     uint8_t sib;
+    uint8_t scale, index, base;
     uint8_t sib_length;
 
     uint8_t displacement[4];

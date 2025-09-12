@@ -4,6 +4,7 @@
 #define START_EIP 0x1000 // same as the user code base in gdt
 #define START_ESP (GDT_BASE_ADDR - 1)
 
+
 typedef struct 
 {
     CPU *cpu;

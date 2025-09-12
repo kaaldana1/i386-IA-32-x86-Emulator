@@ -120,9 +120,9 @@ int interpreter(CPU *cpu, BUS *bus)
         Instruction *decoded_instruction = decoder(byte_instr_queue);
         cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
-        if ((*execution_handler_lut[decoded_instruction->opcode_id])(bus, cpu, decoded_instruction))
+        if ((*execution_handler_lut[decoded_instruction->opcode_id])(bus, cpu, decoded_instruction)) 
         {
-            printf("\nExecution complete\n");
+            printf("\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
         }
     }
     return 1;
