@@ -4,6 +4,7 @@
 #include "ids/register_ids.h"
 #include "decoder.h"
 #include "executor.h"
+#include "tables/execute_tables.h"
 
 
 typedef struct CPU CPU;

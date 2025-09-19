@@ -275,4 +275,11 @@ X(STD,              0xFD, NO_MODRM,       NO_IMMEDIATE,       0, NO_OPERANDS,   
 X(GRP4,             0xFE, HAS_MODRM,      NO_IMMEDIATE,       0, GRP4_INCDEC,   OPC_GRP4,   8   ) \
 X(GRP5,             0xFF, HAS_MODRM,      NO_IMMEDIATE,       0, GRP5_MISC,     OPC_GRP5,   32  )
 
+typedef enum {
+#define X(name, _1, _2, _3, _4, _5, _6, _7) name,
+    FOREACH_OPCODE(X)
+#undef X
+OPCODE_COUNT
+} Opcode_ID;
+
 #endif // OPCODE_LIST_H

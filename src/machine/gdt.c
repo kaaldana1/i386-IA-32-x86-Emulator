@@ -38,8 +38,8 @@ inline static int create_gdt_entry(BUS *bus,  uint32_t addr, uint64_t descriptor
 {
     uint32_t low = (uint32_t)(descriptor & 0xFFFFFFFF); // limit low, base low
     uint32_t high = (uint32_t)((descriptor >> 32) & 0xFFFFFFFF); // base mid, access byte, flag (4 bits), limit high (4 bits), base high
-    bus_write(bus, low, addr);
-    bus_write(bus, high, addr + 4);
+    bus_write(bus, low, addr, 32);
+    bus_write(bus, high, addr + 4, 32);
     return 1;
 }
 

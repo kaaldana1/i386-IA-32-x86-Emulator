@@ -4,6 +4,12 @@
         "flag_registers.h": "c",
         "alu.h": "c",
         "flag_policy.h": "c",
-        "opclass.h": "c"
+        "opclass.h": "c",
+        "execute_tables.h": "c",
+        "instruction.h": "c",
+        "executor.h": "c",
+        "decode_tables.h": "c",
+        "cpu_internal.h": "c",
+        "alu_operations.h": "c"
     }
 }

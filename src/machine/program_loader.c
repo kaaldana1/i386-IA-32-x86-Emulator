@@ -72,7 +72,7 @@ int load_program(BUS *bus, Program *p, uint32_t code_addr)
     size_t offset = 0;
     while (offset + 4 < p->program_length) 
     {
-        bus_write(bus, create_dword(p, offset), code_addr + offset);
+        bus_write(bus, create_dword(p, offset), code_addr + offset, 32);
         offset += 4;
     }
 
@@ -87,7 +87,7 @@ int load_program(BUS *bus, Program *p, uint32_t code_addr)
             remainder_dword |= ((uint32_t)p->program[offset++]) << shift;
             shift += 8;
         }
-        bus_write(bus, remainder_dword, final_addr); 
+        bus_write(bus, remainder_dword, final_addr, 32); 
     }
 
     return 1;

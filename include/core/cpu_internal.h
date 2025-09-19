@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 #include "hardware_sim/bus.h"
-#include "structs/flag_policy.h"
+#include "core/structs/flag_policy.h" 
 
 #define SR_AMOUNT 6
 #define GPR_AMOUNT 9

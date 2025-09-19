@@ -30,6 +30,7 @@ static Machine *boot_sequence(Program *p)
     create_gdt(bus, GDT_BASE_ADDR);
     CPU *cpu = create_cpu();
     cpu_protected_mode_reset(bus, cpu, START_EIP, START_ESP, GDT_BASE_ADDR, GDT_SIZE);
+    init_execution_table();
     load_program(bus, p, USER_CODE_BASE_ADDR);
 
     Machine *m = (Machine *)calloc(1, sizeof(Machine));
@@ -39,8 +40,8 @@ static Machine *boot_sequence(Program *p)
 
 static int create_addr_space(RAMDev *ram,  BUS *bus, CONSOLEDev *c) 
 {
-    bus_register(bus, 0x0000, 0x3FFF, ram_read_dword, ram_write_dword, ram);
-    bus_register(bus, 0x4000, 0x1,  console_read_stub, console_write, c); //bus is just a dummy pointer
+    bus_register(bus, 0x0000, 0x3FFF, ram_read, ram_write, ram);
+    bus_register(bus, 0x4000, 0x1,  console_read_stub, console_write, c); 
     return 1;
 }
 

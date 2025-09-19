@@ -17,7 +17,8 @@ typedef struct
 } addr_table_entry;
 
 
-struct BUS {
+struct BUS 
+{
     addr_table_entry *map; 
     size_t map_size;
     size_t count;
@@ -44,7 +45,7 @@ int bus_register(BUS *bus, uint32_t base, uint32_t size, read_func reader, write
 }
 
 
-int bus_read(BUS *bus, uint32_t *data, uint32_t addr) 
+int bus_read(BUS *bus, uint32_t *data, uint32_t addr, size_t width) 
 {
     size_t i = 0;
     while (i < bus->count) 
@@ -52,7 +53,7 @@ int bus_read(BUS *bus, uint32_t *data, uint32_t addr)
         if (bus->map[i].base <= addr 
             && bus->map[i].size + bus->map[i].base > addr) 
             {
-                if (bus->map[i].read(bus->map[i].device, data, addr)) { return READ_SUCCESS; }
+                if (bus->map[i].read(bus->map[i].device, data, addr, width)) { return READ_SUCCESS; }
             }
         i++;
     }
@@ -60,14 +61,14 @@ int bus_read(BUS *bus, uint32_t *data, uint32_t addr)
 }
 
 
-int bus_write(BUS *bus, uint32_t data, uint32_t addr) 
+int bus_write(BUS *bus, uint32_t data, uint32_t addr, size_t width) 
 {
     size_t i = 0;
     while (i < bus->count) 
     {
         if (bus->map[i].base <= addr && bus->map[i].size + bus->map[i].base > addr) 
         {
-            if (bus->map[i].write(bus->map[i].device, data, addr)) { return WRITE_SUCCESS; }
+            if (bus->map[i].write(bus->map[i].device, data, addr, width)) { return WRITE_SUCCESS; }
         }
         i++;
     }

@@ -18,9 +18,10 @@ typedef struct CONSOLEDev CONSOLEDev;
 RAMDev *init_ram(void);
 CONSOLEDev *init_console(void);
 
-int console_read_stub(void *device, uint32_t *value, uint32_t address);
-int console_write(void *device, uint32_t data, uint32_t addr);
-int ram_read_dword(void *ram_dev, uint32_t *value, uint32_t address);
-int ram_write_dword(void *ram_dev, uint32_t value, uint32_t address); 
+int console_read_stub(void *device, uint32_t *value, uint32_t address, size_t width);
+int console_write(void *device, uint32_t data, uint32_t addr, size_t width);
+
+int ram_read(RAMDev *r, uint32_t *value, uint32_t address, size_t width);
+int ram_write(RAMDev *r, uint32_t value, uint32_t address, size_t width);
 
 #endif

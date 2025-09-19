@@ -11,8 +11,8 @@ static inline uint64_t get_descriptor(BUS *bus, GDTR *gdtr, uint16_t index)
 {
     if ((index * GDT_DESC_SIZE) + 7 > gdtr->size) { return 0; }
     uint32_t low, high;
-    bus_read(bus, &low, gdtr->base + index * GDT_DESC_SIZE);
-    bus_read(bus, &high, gdtr->base + (index * GDT_DESC_SIZE) + 4);
+    bus_read(bus, &low, gdtr->base + index * GDT_DESC_SIZE, 32);
+    bus_read(bus, &high, gdtr->base + (index * GDT_DESC_SIZE) + 4, 32);
     return ((uint64_t)low) | ((uint64_t)high << 32);
 }
 
@@ -99,7 +99,7 @@ static int prefetch (BUS *bus, uint32_t *queue, uint32_t addr)
     memset(queue, 0, (MAX_INSTR_LENGTH / 4) * sizeof(uint32_t));
     for(size_t i = 0; i < MAX_INSTR_LENGTH / 4; i++)  // reads four dwords (16 bytes)
     {
-        bus_read(bus, (queue + i), addr + i*4);
+        bus_read(bus, (queue + i), addr + i*4, 32);
     }
     return 1;
 }
@@ -120,7 +120,7 @@ int interpreter(CPU *cpu, BUS *bus)
         Instruction *decoded_instruction = decoder(byte_instr_queue);
         cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
-        if ((*execution_handler_lut[decoded_instruction->opcode_id])(bus, cpu, decoded_instruction)) 
+        if ((*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction)) 
         {
             printf("\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
         }

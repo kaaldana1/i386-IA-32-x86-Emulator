@@ -232,8 +232,10 @@ static void decode_imm(Instruction *decoded_instr, Cursor *cursor)
 
 Instruction *decoder(uint8_t *encoded_instr)
 {
-    printf("\n\n\n\n");
-    printf("\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
+    printf("/////////////////////////////////////////////////////////////////////\n");
+    printf("/////////////////////////////////////////////////////////////////////\n");
+    printf("/////////////////////////////////////////////////////////////////////\n");
+    printf("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
     printf("\n==================Decoding===================\n");
 
 
@@ -258,7 +260,6 @@ Instruction *decoder(uint8_t *encoded_instr)
                                   decoded_instr->immediate_length; 
 
     printf("\n==============Decoding DONE==================\n");
-    printf("\n");
     return decoded_instr;
 }
 

@@ -3,8 +3,9 @@
 #define INSTRUCTION_H
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdbool.h>
-#include "ids/opcode_ids.h"
+#include "ids/opcode_list.h"
 #include "core/structs/operand_addr_form.h"
 
 typedef struct {
