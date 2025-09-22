@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "ids/opcode_list.h"
-#include "core/structs/operand_addr_form.h"
 
 typedef struct {
     uint8_t prefix[4];
@@ -25,12 +24,11 @@ typedef struct {
 
     uint8_t opcode[3];
     uint8_t opcode_length;
-    Opcode_ID opcode_id;
+    OpcodeID OpcodeID;
 
     uint8_t modrm;
     uint8_t modrm_length;
     uint8_t mod, reg_or_opcode, rm_field;
-    Operand_addr_form operands;
 
     uint8_t sib;
     uint8_t scale, index, base;

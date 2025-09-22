@@ -5,14 +5,13 @@ typedef enum
 {
     EAX, ECX, EDX, EBX, EIP,
     EBP, ESI, EDI, ESP
-} GPR_type;
+} GeneralPurposeRegisterType;
 
 typedef enum 
 {
     CS, DS, ES, FS, GS, SS
-} SR_type;
+} SegmentRegisterType;
 
-//status register
 typedef enum
 {
      SF = 1 << 0,  /*sign flag: 
@@ -31,13 +30,13 @@ typedef enum
             PF = 1 sif the low byte of a result has an event number*/
      OF = 1 << 5 /*overflow flag
             OF = 1 if signed overflow occured*/
-} Status_flags;
+} StatusFlagType;
 
 typedef enum  
 {
     DF = 1 << 6, /*directional flag*/
     IF = 1 << 7, /*interrupt flag*/
     TF = 1 << 8 /*trap flag*/
-} Control_flags;
+} ControlFlagType;
 
 #endif

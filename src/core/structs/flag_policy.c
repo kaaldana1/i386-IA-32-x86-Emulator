@@ -1,4 +1,4 @@
-#include "core/structs/flag_policy.h"
+#include "core/structs/FlagPolicy.h"
 #include "ids/register_ids.h"
 
 // Categories of OPCLASS that share flag update logic:
@@ -43,7 +43,7 @@ GROUP 11            SAL/SAR/SHL/SHR 1     M   M   M  ──   M   M
 GROUP 12            SAL/SAR/SHL/SHR count ──  M   M  ──   M   M
                    SHLD/SHRD              ──  M   M  ──   M   M
                     ===================================================
-GROUP 13            BSF/BSR               ── ──   M  ──  ──  ──
+GROUP 13            BSF/BSegmentRegister               ── ──   M  ──  ──  ──
                     ===================================================
 GROUP 14            BT/BTS/BTR/BTC        ── ──  ──  ──  ──   M
                     ===================================================
@@ -65,7 +65,7 @@ FP_ARITH_2_GRP_MASK = (OPC_ADC | OPC_SBB),
     FP_ROTATE_GRP_MASK = (OPC_ROL | OPC_ROR),
     */
 
-const Flag_policy  FP_ARITH_GROUP = 
+const FlagPolicy  FP_ARITH_GROUP = 
 {
     .write =  (CF | OF | SF | ZF | PF | AF ),
     .clear = 0,
@@ -74,7 +74,7 @@ const Flag_policy  FP_ARITH_GROUP =
     .test = 0
 };
 
-const Flag_policy FP_ARITH_2_GROUP = 
+const FlagPolicy FP_ARITH_2_GROUP = 
 {
     .write =  (CF | OF | SF | ZF | PF | AF ),
     .clear = 0,
@@ -83,7 +83,7 @@ const Flag_policy FP_ARITH_2_GROUP =
     .test = PF
 };
 
-const Flag_policy FP_INC_DEC_GROUP = 
+const FlagPolicy FP_INC_DEC_GROUP = 
 {
     .write =  (OF | SF | ZF | AF | PF ),
     .clear = 0,
@@ -92,7 +92,7 @@ const Flag_policy FP_INC_DEC_GROUP =
     .test = 0
 };
 
-const Flag_policy FP_LOGIC_GRP = 
+const FlagPolicy FP_LOGIC_GRP = 
 {
     .write = (SF | ZF | PF ),
     .clear = OF,
@@ -101,7 +101,7 @@ const Flag_policy FP_LOGIC_GRP =
     .test = 0
 };
 
-const Flag_policy FP_SHIFT_GRP = 
+const FlagPolicy FP_SHIFT_GRP = 
 {
     .write =  (CF | OF | SF | PF | AF ),
     .clear = 0,
@@ -110,7 +110,7 @@ const Flag_policy FP_SHIFT_GRP =
     .test = 0
 };
 
-const Flag_policy FP_ROTATE_GRP = 
+const FlagPolicy FP_ROTATE_GRP = 
 {
     .write =  ( SF | OF ),
     .clear = 0,

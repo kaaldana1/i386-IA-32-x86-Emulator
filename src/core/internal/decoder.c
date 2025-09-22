@@ -119,10 +119,10 @@ static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
         // use lookup table
         if (!(cursor->encoded_instr[cursor->byte_p] == MULT_BYTE_FLAG))
         {
-            Opcode_ID opcode = single_byte_opcode_lut[cursor->encoded_instr[cursor->byte_p]];
+            OpcodeID opcode = single_byte_opcode_lut[cursor->encoded_instr[cursor->byte_p]];
 
             put_byte(decoded_instr, FIELD_OPCODE, cursor->encoded_instr[cursor->byte_p++]);
-            decoded_instr->opcode_id = opcode;
+            decoded_instr->OpcodeID = opcode;
 
 #ifdef DEBUG
             printf("\nOPCODE is: %d\n", opcode);
@@ -153,7 +153,7 @@ static void decode_sib(Instruction *decoded_instr, Cursor *cursor)
 
 static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
 {
-    if (instr_metadata_lut[decoded_instr->opcode_id].has_modrm)
+    if (instr_metadata_lut[decoded_instr->OpcodeID].has_modrm)
     {
         put_byte(decoded_instr, FIELD_MODRM, cursor->encoded_instr[cursor->byte_p++]);
 
@@ -166,21 +166,18 @@ static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
             decode_sib(decoded_instr, cursor);
         }
 
-        decoded_instr->operands = operand_addr_form_lut[mod][rm_field][reg_or_opcode];
-
         decoded_instr->mod = mod;
         decoded_instr->reg_or_opcode = reg_or_opcode;
         decoded_instr->rm_field = rm_field;
 
 #ifdef DEBUG
-        printf("Has Imm: %zu\n", instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes);
+        printf("Has Imm: %zu\n", instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes);
         printf("Modrm byte: %02x\n", decoded_instr->modrm);
 
         printf("Mod: %02x\n", decoded_instr->mod);
         printf("reg_or_opcode: %02x\n", decoded_instr->reg_or_opcode);
         printf("rm_field: %02x\n", decoded_instr->rm_field);
 
-        printf("Addressing form: Reg 1: %d   .  Reg 2: %d", decoded_instr->operands.effective_addr_register, decoded_instr->operands.src_register);
 #endif
     }
 
@@ -189,7 +186,7 @@ static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
 
 static void decode_disp(Instruction *decoded_instr, Cursor *cursor)
 {
-    if (!instr_metadata_lut[decoded_instr->opcode_id].has_modrm) return;
+    if (!instr_metadata_lut[decoded_instr->OpcodeID].has_modrm) return;
     switch (decoded_instr->mod)
     {
         case (uint8_t)0x00:
@@ -221,9 +218,9 @@ static void decode_disp(Instruction *decoded_instr, Cursor *cursor)
 static void decode_imm(Instruction *decoded_instr, Cursor *cursor)
 {
     uint8_t return_p = cursor->byte_p;
-    if (instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes != 0) 
+    if (instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes != 0) 
     {
-        while (cursor->byte_p < instr_metadata_lut[decoded_instr->opcode_id].immediate_bytes + return_p) 
+        while (cursor->byte_p < instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes + return_p) 
         {
             put_byte(decoded_instr, FIELD_IMMEDIATE, cursor->encoded_instr[cursor->byte_p++]);
         }

@@ -3,8 +3,8 @@
 
 // Each X(name, opcode,
 //         has_modrm, immediate_bytes, operand_count,
-//         operand_type, opclass, width)
-// matches Instruction_metadata fields.
+//         OperandType, opclass, width)
+// matches InstructionMetadata fields.
 
 #define FOREACH_OPCODE(X) \
 /* 00–0F ------------------------------------------------ */ \
@@ -155,9 +155,9 @@ X(MOV_RM8_R8,       0x88, HAS_MODRM,      NO_IMMEDIATE,       2, REG_TO_MEM,    
 X(MOV_RM32_R32,     0x89, HAS_MODRM,      NO_IMMEDIATE,       2, REG_TO_MEM,    OPC_MOV,    32  ) \
 X(MOV_R8_RM8,       0x8A, HAS_MODRM,      NO_IMMEDIATE,       2, MEM_TO_REG,    OPC_MOV,    8   ) \
 X(MOV_R32_RM32,     0x8B, HAS_MODRM,      NO_IMMEDIATE,       2, MEM_TO_REG,    OPC_MOV,    32  ) \
-X(MOV_SREG_RM16,    0x8C, HAS_MODRM,      NO_IMMEDIATE,       2, MEM_TO_REG,    OPC_MOV,    16  ) \
+X(MOV_SegmentRegisterEG_RM16,    0x8C, HAS_MODRM,      NO_IMMEDIATE,       2, MEM_TO_REG,    OPC_MOV,    16  ) \
 X(LEA,              0x8D, HAS_MODRM,      NO_IMMEDIATE,       2, MEM_TO_REG,    OPC_LEA,    32  ) \
-X(MOV_RM16_SREG,    0x8E, HAS_MODRM,      NO_IMMEDIATE,       2, REG_TO_MEM,    OPC_MOV,    16  ) \
+X(MOV_RM16_SegmentRegisterEG,    0x8E, HAS_MODRM,      NO_IMMEDIATE,       2, REG_TO_MEM,    OPC_MOV,    16  ) \
 X(POP_RM32,         0x8F, HAS_MODRM,      NO_IMMEDIATE,       1, MEM_ONLY,      OPC_POP,    32  ) \
 /* 90–9F ------------------------------------------------ */ \
 X(NOP,              0x90, NO_MODRM,       NO_IMMEDIATE,       0, NO_OPERANDS,   OPC_NOP,    0   ) \
@@ -280,6 +280,6 @@ typedef enum {
     FOREACH_OPCODE(X)
 #undef X
 OPCODE_COUNT
-} Opcode_ID;
+} OpcodeID;
 
 #endif // OPCODE_LIST_H

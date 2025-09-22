@@ -1,14 +1,21 @@
 #include "tables/decode_tables.h"
 #include "core/alu.h"
-#include "core/structs/flag_policy.h" 
+#include "core/structs/FlagPolicy.h" 
 #include "core/structs/instruction.h"
 #include "ids/opcode_list.h"
 #include "core/executor.h"
 
-#define FOR_EACH_WIDTH(X) X(8) X(16) X(32)
+#define FOR_EACH_WIDTH(X) X(8) X(32)
 #define FOR_EACH_REG(X) X(EAX) X(ECX) X(EDX) X(EBX) X(ESP) X(EBP) X(ESI) X(EDI)
 
-#define MOD_REGISTER 0x3
+#define NO_CIN 0
+#define CIN 1
+
+#define MEM_ADDRESSING 0x0
+#define MEM_DISP8 0x1
+#define MEM_DISP32 0x2
+#define REGISTER_DIRECT 0x3
+
 //=======================================================================================================================================================
 //=========================================================PRINT HELPERS=================================================================================
 void print_registers(CPU *cpu) 
@@ -17,7 +24,7 @@ void print_registers(CPU *cpu)
 
     // General-purpose registers
     printf("+-----------------+----------+\n"); 
-    printf("| GPR             | Value    |\n"); 
+    printf("| gpr             | Value    |\n"); 
     printf("+-----------------+----------+\n"); 
     printf("| EAX             | %08X |\n", cpu->gen_purpose_registers[0].dword); 
     printf("| ECX             | %08X |\n", cpu->gen_purpose_registers[1].dword); 
@@ -93,21 +100,57 @@ static void print_imm_reg(CPU *cpu,  Instruction *decoded_instr)
 //=======================================================================================================================================================
 //===================================================================REGISTER ACCESSORS=======================================================================
 
-static inline uint32_t gpr32(CPU *cpu, GPR_type id)
+static inline uint32_t gpr32(CPU *cpu, GeneralPurposeRegisterType id)
 {
     return cpu->gen_purpose_registers[id].dword;
 }
 
-static inline uint32_t gpr16(CPU *cpu, GPR_type id)
+static inline uint32_t gpr16(CPU *cpu, GeneralPurposeRegisterType id)
 {
     return cpu->gen_purpose_registers[id].word[0];
 }
 
-static inline uint32_t gpr8(CPU *cpu, GPR_type id)
+static inline uint32_t gpr8(CPU *cpu, GeneralPurposeRegisterType id)
 {
     return cpu->gen_purpose_registers[id].byte[0];
 }
 
+static inline uint32_t gpr_w_handler(CPU *cpu, GeneralPurposeRegisterType id, size_t width)
+{
+    switch (width)
+    {
+        case 8: return gpr8(cpu, id);
+        case 16: return gpr16(cpu, id);
+        case 32: return gpr32(cpu, id);
+        default: return 0;
+    }
+}
+
+static inline void set_gpr32(CPU *cpu, GeneralPurposeRegisterType id, uint32_t value)
+{
+    cpu->gen_purpose_registers[id].dword = value;
+}
+
+static inline void set_gpr16(CPU *cpu, GeneralPurposeRegisterType id, uint16_t value)
+{
+    cpu->gen_purpose_registers[id].word[0] = value;
+}
+
+static inline void set_gpr8(CPU *cpu, GeneralPurposeRegisterType id, uint8_t value)
+{
+    cpu->gen_purpose_registers[id].byte[0] = value;
+}
+
+static inline void set_gpr_w_handler(CPU *cpu, GeneralPurposeRegisterType id, size_t width, uint32_t value)
+{
+    switch (width)
+    {
+        case 8: set_gpr8(cpu, id, (uint8_t)value); break;
+        case 16: set_gpr16(cpu, id, (uint16_t)value); break;
+        case 32: set_gpr32(cpu, id, value); break;
+        default: break;
+    }
+}
 
 //=======================================================================================================================================================
 //===================================================================General Utils=======================================================================
@@ -128,17 +171,12 @@ static inline uint32_t get_imm(Instruction *instr)
     return ((uint32_t)instr->immediate[0] | (uint32_t)instr->immediate[1] << 8 | (uint32_t)instr->immediate[2] << 16 | (uint32_t)instr->immediate[3] << 24);
 }
 
-static inline Operand_addr_form search_addr_form(Instruction *instr) 
-{
-    return  operand_addr_form_lut[instr->mod][instr->rm_field][instr->reg_or_opcode];
-}
-
 //=======================================================================================================================================================
 //========================================================Effective Address Calculation Helpers==========================================================
 
 static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
 {
-    if (instr->mod == 0x3) 
+    if (instr->mod == REGISTER_DIRECT) 
         return 0; // register direct is used
     if (instr->mod == 0x00 && instr->rm_field == 0x05) 
         return get_disp(instr);
@@ -148,7 +186,7 @@ static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
 
     if (!instr->sib_length && !instr->displacement_length)
     {
-        effective_addr = gpr32(cpu, search_addr_form(instr).effective_addr_register);
+        effective_addr = gpr32(cpu, instr->rm_field);
     }
 
     if (instr->sib_length)
@@ -166,11 +204,13 @@ static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
     
 }
 
+
+
 //=======================================================================================================================================================
 //===============================================================STATUS REGISTER UPDATE=================================================================================
 
 
-Flag_policy get_flag_policy(Opclass opc) 
+FlagPolicy get_FlagPolicy(Opclass opc) 
 {
     if (opc & FP_ARITH_GRP_MASK) return FP_ARITH_GROUP;
     if (opc & FP_ARITH_2_GRP_MASK) return FP_ARITH_2_GROUP;
@@ -182,67 +222,112 @@ Flag_policy get_flag_policy(Opclass opc)
 
 static int update_status_register(CPU *cpu, Opclass opc, uint16_t possible_flags) 
 {
-    uint16_t permissible = possible_flags & get_flag_policy(opc).write;
+    uint16_t permissible = possible_flags & get_FlagPolicy(opc).write;
     cpu->status_register &= ~permissible; 
     cpu->status_register |= (permissible & possible_flags); 
     return 1;
 }
 
+//=======================================================================================================================================================
+//===============================================================ARITHMETIC AND LOGIC HELPERS=================================================================================
+
+
+static int arith_logic_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, Opclass opclass)
+{
+    if(decoded_instr->mod == 0x3)
+    {
+        ALU_out out = { .low = 0, .high = 0, .flags_out = 0 };
+        ALU(/*op1 register direct*/gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width), 
+                            /*op2*/gpr_w_handler(cpu, decoded_instr->rm_field, width), 
+                            /*cin*/ NO_CIN, width, opclass, &out);
+
+
+        set_gpr_w_handler(cpu, decoded_instr->rm_field, width, out.low);
+        update_status_register(cpu, opclass, out.flags_out);
+
+        print_registers(cpu);                                                                                       
+        printf("Result is: %02x\n", out.low);                                                                        
+    }                                                                                                               
+    else                                                                                                            
+    {                                                                                                               
+        // register indirect
+        uint32_t mem_value = 0;
+        uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
+        bus_read(bus, &mem_value, effective_addr, width);
+        printf("Effective address calculated: %08X\n", effective_addr);
+        printf("Value at effective address: %02x\n", mem_value);
+
+        ALU_out out = { .low = 0, .high = 0, .flags_out = 0 };
+        ALU(/*op1 from mem*/mem_value, 
+            /*op2 from reg*/gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width), 
+                            0, width, opclass, &out);                                                          
+
+        bus_write(bus, out.low, effective_addr, width);
+        update_status_register(cpu, opclass, out.flags_out);                                                        
+
+        print_registers(cpu);                                                                                       
+        printf("Result is: %02x\n", out.low);                                                                       
+        print_dword(out.low, effective_addr);                                                                       
+    }                                                                                                               
+    printf("===================EXECUTE DONE======================\n");                                              
+    return 1; 
+}
+
+static int arith_logic_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, Opclass opclass)
+{
+    if (decoded_instr->mod == REGISTER_DIRECT)                                                                                  
+    {                                                                                                               
+        ALU_out out = { .low = 0, .high = 0, .flags_out = 0 };                                                        
+        ALU(/*op1 register direct*/gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width), 
+                            /*op2*/gpr_w_handler(cpu, decoded_instr->rm_field, width), 
+                            /*cin*/ NO_CIN, width, opclass, &out);
+        set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, out.low, width);
+        update_status_register(cpu, opclass, out.flags_out);
+
+        printf("Result: %02x\n", out.low);
+    }                                                                                                               
+    else                                                                                                            
+    {                                                                                                               
+        uint32_t effective_addr = calculate_EA(cpu, decoded_instr);                                                 
+        uint32_t value = 0;                                                                                         
+        bus_read(bus, &value, effective_addr, width);                                                                   
+
+        ALU_out out = { .low = 0, .high = 0, .flags_out = 0 };                                                      
+        ALU(/*op1 register dst*/gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width), 
+            /*op2 src from mem*/value, 
+                                NO_CIN, width, opclass, &out);
+
+        set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, out.low, width);
+        update_status_register(cpu, opclass, out.flags_out);
+
+        printf("Result: %02x\n", out.low);                                                                           
+    }                                                                                                               
+    print_registers(cpu);                                                                                           
+    printf("===================EXECUTE DONE======================\n");                                              
+    return 0;                                                                                                       
+}
 
 //=======================================================================================================================================================
 //===============================================================00 - 0F=================================================================================
 
-#define X(W)                                                                                        \
-int execute_ADD_RM##W##_R##W(BUS *bus, CPU *cpu, Instruction *decoded_instr)                        \
-{                                                                                                   \
-    printf("===================EXECUTING ADD_RM%d_R%d======================\n", W, W);              \
-    uint32_t mem_value = 0;                                                                         \
-    uint32_t effective_addr = calculate_EA(cpu, decoded_instr);                                     \
-    uint32_t source_value = (uint##W##_t)gpr##W(cpu, search_addr_form(decoded_instr).src_register); \
-    bus_read(bus, &mem_value, effective_addr, W);                                                   \
-    ALU_out out;                                                                                    \
-    ALU(mem_value, source_value, 0, W, OPC_ADD, &out);                                              \
-    update_status_register(cpu, OPC_ADD, out.flags_out);                                            \
-    bus_write(bus, out.low, effective_addr, W);                                                     \
-    print_registers(cpu);                                                                           \
-    printf("Result is: %02x\n", out.low);                                                           \
-    print_dword(out.low, effective_addr);                                                           \
-    printf("===================EXECUTE DONE======================\n");                              \
-    return 1; \
-} 
+#define X(W)                                                                                                        \
+int execute_ADD_RM##W##_R##W(BUS *bus, CPU *cpu, Instruction *decoded_instr)                                        \
+{                                                                                                                   \
+    printf("===================EXECUTING ADD_RM%d_R%d======================\n", W, W);                              \
+    return arith_logic_rm_r(bus, cpu, decoded_instr, W, OPC_ADD);                                                   \
+}
 FOR_EACH_WIDTH(X)                                           
 #undef X
 
-int execute_ADD_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
-{ 
-    printf("\n========Executing ADD_R8_RM8...============\n");
-    uint32_t mem_value = 0;
-    Operand_addr_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
+#define X(W)                                                                                                        \
+int execute_ADD_R##W_RM##W (BUS *bus, CPU *cpu, Instruction *decoded_instr)                                         \
+{                                                                                                                   \
+    printf("===================EXECUTING ADD_R%d_RM%d======================\n", W, W);                              \
+    return arith_logic_r_rm(bus, cpu, decoded_instr, W, OPC_ADD);                                                   \
+}                                                                                                                   \
+FOR_EACH_WIDTH(X)
+#undef X
 
-    uint32_t value;
-    if (decoded_instr->mod == MOD_REGISTER)
-    {
-        value = (uint32_t)cpu->gen_purpose_registers[addr_form.effective_addr_register].byte[0];
-    }
-    else 
-    {
-        uint32_t address = cpu->gen_purpose_registers[addr_form.effective_addr_register].dword;
-        bus_read(bus, &value, address, 8);
-    }
-
-    uint8_t result = cpu->gen_purpose_registers[addr_form.src_register].byte[0] + (uint8_t)value;
-    cpu->gen_purpose_registers[addr_form.src_register].byte[0] = result;
-
-
-#ifdef DEBUG
-    printf("Result: %02x\n", result);
-    print_registers(cpu);
-    printf("===================EXECUTE DONE======================\n");
-#endif
-    return 0; 
-}
-
-int execute_ADD_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
 int execute_ADD_AL_IMM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
 int execute_ADD_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
 
@@ -259,11 +344,24 @@ int execute_POP_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; 
 
 //=======================================================================================================================================================
 //===============================================================20 - 2F=================================================================================
+#define X(W)                                                                                                        \
+int execute_AND_RM##W##_R##W(BUS *bus, CPU *cpu, Instruction *decoded_instr)                                        \
+{                                                                                                                   \
+    printf("===================EXECUTING ADD_RM%d_R%d======================\n", W, W);                              \
+    return arith_logic_rm_r(bus, cpu, decoded_instr, W, OPC_AND);                                                   \
+}
+FOR_EACH_WIDTH(X)                                           
+#undef X
 
-int execute_AND_RM8_R8    (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_AND_RM32_R32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_AND_R8_RM8    (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_AND_R32_RM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+#define X(W)                                                                                                        \
+int execute_AND_R##W_RM##W (BUS *bus, CPU *cpu, Instruction *decoded_instr)                                         \
+{                                                                                                                   \
+    printf("===================EXECUTING ADD_R%d_RM%d======================\n", W, W);                              \
+    return arith_logic_r_rm(bus, cpu, decoded_instr, W, OPC_AND);                                                   \
+}                                                                                                                   \
+FOR_EACH_WIDTH(X)
+#undef X
+
 int execute_AND_AL_IMM8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
 int execute_AND_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
 int execute_SEG_ES        (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
@@ -279,10 +377,24 @@ int execute_CMP_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (
 //=======================================================================================================================================================
 //===============================================================30 - 3F=================================================================================
 
-int execute_XOR_RM8_R8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_XOR_RM32_R32   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_XOR_R8_RM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_XOR_R32_RM32   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+#define X(W)                                                                                                        \
+int execute_XOR_RM##W##_R##W(BUS *bus, CPU *cpu, Instruction *decoded_instr)                                        \
+{                                                                                                                   \
+    printf("===================EXECUTING XOR_RM%d_R%d======================\n", W, W);                              \
+    return arith_logic_rm_r(bus, cpu, decoded_instr, W, OPC_XOR);                                                   \
+}
+FOR_EACH_WIDTH(X)                                           
+#undef X
+
+#define X(W)                                                                                                        \
+int execute_XOR_R##W_RM##W (BUS *bus, CPU *cpu, Instruction *decoded_instr)                                         \
+{                                                                                                                   \
+    printf("===================EXECUTING XOR_R%d_RM%d======================\n", W, W);                              \
+    return arith_logic_r_rm(bus, cpu, decoded_instr, W, OPC_XOR);                                                   \
+}                                                                                                                   \
+FOR_EACH_WIDTH(X)
+#undef X
+
 int execute_XOR_AL_IMM8    (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
 int execute_XOR_EAX_IMM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
 
@@ -342,9 +454,20 @@ int execute_MOV_RM8_R8      (BUS *bus, CPU *cpu, Instruction *decoded_instr)   {
 int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
     printf("\n========Executing MOV_RM32_R32...============\n");
-    Operand_addr_form addr_form = operand_addr_form_lut[decoded_instr->mod][decoded_instr->rm_field][decoded_instr->reg_or_opcode];
-    bus_write(bus, cpu->gen_purpose_registers[addr_form.src_register].dword, cpu->gen_purpose_registers[addr_form.effective_addr_register].dword, 32); 
-    print_dword(cpu->gen_purpose_registers[addr_form.src_register].dword, cpu->gen_purpose_registers[addr_form.effective_addr_register].dword);
+    uint32_t ea = calculate_EA(cpu, decoded_instr);
+    uint32_t val = cpu->gen_purpose_registers[decoded_instr->reg_or_opcode].dword;
+
+    printf("Effective address calculated: %08X\n", ea);
+    printf("Value to be moved: %08X\n", val);
+
+    if (decoded_instr->mod == 0x3) {
+        // r/m is  a register
+        cpu->gen_purpose_registers[decoded_instr->rm_field].dword = val;
+    } else {
+        // r/m is memory
+        bus_write(bus, val, ea, 32);
+    }
+    print_dword(val, ea);
     printf("===================EXECUTE DONE======================\n");
     return 1;
 }

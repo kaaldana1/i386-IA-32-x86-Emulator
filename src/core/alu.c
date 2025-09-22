@@ -110,6 +110,11 @@ static inline int alu_##op(uint32_t op1, uint32_t op2, int cin, size_t width, AL
     printf("+=====================+\n"); \
     uint32_t result = expr ;\
     out->low = result; \
+    printf("+======================+\n"); \
+    printf("|      op1: %08X   |  \n", op1); \
+    printf("|      op2: %08X   |  \n", op2); \
+    printf("|      result: %08X|  \n", result); \
+    printf("+======================+\n"); \
     update_potential_flags(op1, op2, out, width); \
     return 1; \
 } 

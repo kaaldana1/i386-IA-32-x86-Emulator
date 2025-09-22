@@ -1,5 +1,5 @@
-#ifndef INSTRUCTION_METADATA_H
-#define INSTRUCTION_METADATA_H
+#ifndef INSTRUCTIONMETADATA_H
+#define INSTRUCTIONMETADATA_H
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -49,6 +49,6 @@ typedef struct
     Operand_type operand_type;
     Opclass opclass;
     size_t width;
-} Instruction_metadata;
+} InstructionMetadata;
 
 #endif

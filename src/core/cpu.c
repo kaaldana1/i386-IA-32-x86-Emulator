@@ -2,7 +2,7 @@
 #define MAX_INSTR_LENGTH 16
 
 
-static inline uint16_t get_SR_index(const SR *reg) 
+static inline uint16_t get_SegmentRegister_index(const SegmentRegister *reg) 
 {
     return reg->selector >> 3;
 }
@@ -33,9 +33,9 @@ static inline uint16_t get_flag(uint64_t descriptor)
     return( (uint16_t)(descriptor >> 40) & 0xF0FF);
 }
 
-int set_SR_cache(BUS *bus, CPU *cpu, SR_type type) 
+int set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
-    uint16_t index = get_SR_index(&cpu->segment_registers[type]); // gets index bits from selector
+    uint16_t index = get_SegmentRegister_index(&cpu->segment_registers[type]); // gets index bits from selector
     uint64_t desc = get_descriptor(bus, &cpu->gdtr, index); 
 
     cpu->segment_registers[type].base = get_base(desc);
@@ -63,9 +63,9 @@ int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t start_eip, uint32_t st
     cpu->segment_registers[DS].selector = 0x0023;
     cpu->segment_registers[SS].selector = 0x0023;
 
-    set_SR_cache(bus, cpu, CS);
-    set_SR_cache(bus, cpu, DS);
-    set_SR_cache(bus, cpu, SS);
+    set_SegmentRegister_cache(bus, cpu, CS);
+    set_SegmentRegister_cache(bus, cpu, DS);
+    set_SegmentRegister_cache(bus, cpu, SS);
 
     return 1;
 }

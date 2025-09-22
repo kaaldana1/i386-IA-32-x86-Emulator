@@ -8,10 +8,10 @@
 #include <stdio.h>
 
 #include "hardware_sim/bus.h"
-#include "core/structs/flag_policy.h" 
+#include "core/structs/FlagPolicy.h" 
 
-#define SR_AMOUNT 6
-#define GPR_AMOUNT 9
+#define SegmentRegister_AMOUNT 6
+#define GeneralPurposeRegister_AMOUNT 9
 #define GDT_DESC_SIZE 8 
 
 typedef union
@@ -19,7 +19,7 @@ typedef union
     uint32_t dword;
     uint16_t word[2];
     uint8_t byte[4];
-} GPR; // general purpose register
+} GeneralPurposeRegister; // general purpose register
 
 
 typedef struct 
@@ -29,7 +29,7 @@ typedef struct
     /* secret cache */
     uint32_t base, limit;
     uint16_t flag;
-} SR; // segment register
+} SegmentRegister; // segment register
 
 typedef struct {
     uint32_t base;
@@ -37,8 +37,8 @@ typedef struct {
 } GDTR;
 
 struct CPU {
-    GPR gen_purpose_registers[GPR_AMOUNT]; //indexed by gpr_type 
-    SR segment_registers[SR_AMOUNT]; //indexed by gpr_type 
+    GeneralPurposeRegister gen_purpose_registers[GeneralPurposeRegister_AMOUNT]; //indexed by GeneralPurposeRegisterType 
+    SegmentRegister segment_registers[SegmentRegister_AMOUNT]; //indexed by GeneralPurposeRegisterType 
     uint16_t status_register; 
     GDTR gdtr;
     bool halt;

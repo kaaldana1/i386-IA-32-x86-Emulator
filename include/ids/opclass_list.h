@@ -87,7 +87,7 @@
     X(DIV,        0x2003F) \
     X(IDIV,       0x20040) \
     X(BSF,        0x20041) \
-    X(BSR,        0x20042) \
+    X(BSegmentRegister,        0x20042) \
     X(MOV,        0x20043) \
     X(NOP,        0x20044) \
     X(ESC,        0x20045) \

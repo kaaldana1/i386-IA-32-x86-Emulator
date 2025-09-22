@@ -3,7 +3,7 @@
         "cpu.h": "c",
         "flag_registers.h": "c",
         "alu.h": "c",
-        "flag_policy.h": "c",
+        "FlagPolicy.h": "c",
         "opclass.h": "c",
         "execute_tables.h": "c",
         "instruction.h": "c",
