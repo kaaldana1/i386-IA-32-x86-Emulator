@@ -1,0 +1,14 @@
+B8 00 25 00 00                ; mov  eax, 0x2500
+BB 00 00 00 01                ; mov  ebx, 0x01000000
+89 18                         ; mov  [eax], ebx
+B9 00 00 00 00                ; mov  ecx, 0
+F9                            ; stc                      ; CF=1 (borrow in)
+19 08                         ; sbb  [eax], ecx          ; rm32,r32 → [eax]=0x00FFFF FFFF (underflow)
+1B 18                         ; sbb  ebx, [eax]          ; r32,rm32 → ebx=0x01000000 - 0xFFFFFFFF - CF(0) = 0x01000001 (mod 2^32)
+BB 10 00 00 00                ; mov  ebx, 0x10           ; BL=0x10
+F8                            ; clc                      ; CF=0
+18 18                         ; sbb  [eax], bl           ; rm8,r8 → low byte: 0xFF - 0x10 = 0xEF
+F9                            ; stc                      ; CF=1
+1A 58 01                      ; sbb  bl, [eax+1]         ; r8,rm8 → 0x10 - 0xFF - 1 = 0x10 (with borrow) → BL=0x10 (mod 256)=0x10
+89 58 04                      ; mov  [eax+4], ebx        ; expect 0x00000010
+F4

@@ -5,6 +5,7 @@
 typedef struct 
 {
     uint32_t low, high;
+    uint32_t cin;
     uint16_t flags_out;
 } ALU_out;
 

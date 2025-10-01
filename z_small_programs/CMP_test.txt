@@ -1,0 +1,15 @@
+B8 00 26 00 00                ; mov  eax, 0x2600
+BB 11 22 33 44                ; mov  ebx, 0x44332211
+89 18                         ; mov  [eax], ebx
+
+B9 11 22 33 44                ; mov  ecx, 0x44332211
+39 08                         ; cmp  [eax], ecx          ; rm32,r32 → ZF=1
+3B 18                         ; cmp  ebx, [eax]          ; r32,rm32 → ZF=1
+
+BA AA BB CC DD                ; mov  edx, 0xDDCCBBAA     ; checksum candidate
+8A 10                         ; mov  dl, [eax]           ; r8,rm8 → DL=0x11
+3A 50 01                      ; cmp  dl, [eax+1]         ; r8,rm8 → 0x11 ?= 0x22 → ZF=0
+38 10                         ; cmp  [eax], dl           ; rm8,r8 → 0x11 ?= 0x11 → ZF=1
+
+89 50 04                      ; mov  [eax+4], edx        ; final = 0xDDCCBB11 (depends on 8/32 cmp correctness)
+F4

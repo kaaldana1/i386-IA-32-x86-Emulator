@@ -1,0 +1,12 @@
+B8 00 23 00 00                ; mov  eax, 0x2300
+BB 10 00 00 01                ; mov  ebx, 0x01000010
+89 18                         ; mov  [eax], ebx          
+B9 00 00 00 01                ; mov  ecx, 0x01000000
+29 08                         ; sub  [eax], ecx          
+2B 18                         ; sub  ebx, [eax]          
+BB F0 00 00 00                ; mov  ebx, 0x000000F0     
+28 18                         ; sub  [eax], bl           ; rm8,r8 -> low byte: 0x10 - 0xF0 = 0x20 with borrow -> [eax]=0x00000020 (mod 256), flags set
+2A 58 01                      ; sub  bl, [eax+1]         ; r8,rm8 -> BL - 0x00 = 0xF0
+8B 10                         ; mov  edx, [eax]          
+89 50 04                      ; mov  [eax+4], edx        ; expect 0x00000020
+F4

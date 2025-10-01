@@ -1,0 +1,15 @@
+B8 00 27 00 00                ; mov  eax, 0x2700
+BB F0 0F F0 0F                ; mov  ebx, 0x0FF00FF0
+89 18                         ; mov  [eax], ebx
+
+B9 0F F0 0F F0                ; mov  ecx, 0xF00FF00F
+85 08                         ; test [eax], ecx          ; rm32,r32 → result should be 0 (ZF=1)
+8B 10                         ; mov  edx, [eax]          ; keep original content intact
+
+8A 18                         ; mov  bl, [eax]           ; r8,rm8 → BL=0xF0
+84 58 01                      ; test [eax+1], bl         ; rm8,r8 → 0x0F & 0xF0 = 0 (ZF=1)
+8A 58 02                      ; mov  bl, [eax+2]         ; BL=0xF0
+84 18                         ; test [eax], bl           ; rm8,r8 → 0xF0 & 0xF0 != 0 (ZF=0)
+
+89 50 04                      ; mov  [eax+4], edx        ; final mirrors untouched source (0x0FF00FF0)
+F4

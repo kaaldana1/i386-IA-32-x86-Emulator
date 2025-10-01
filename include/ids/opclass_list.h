@@ -2,23 +2,24 @@
 #define OPCLASS_LIST_H
 
 #define FOR_EACH_ARITH_LOGIC_OP(X) \
-    X(ADD,  0x01,   (op1 + op2))  \
-    X(SUB,  0x02,   (op1 - op2))  \
-    X(CMP,  0x04,   (op1 - op2))  \
-    X(NEG,  0x08,   (-op1))  \
-    X(ADC,  0x10,   (op1 + op2 + cin))  \
-    X(SBB,  0x20,   (op1 - op2 - cin))  \
-    X(INC,  0x40,   (op1 + 1))  \
-    X(DEC,  0x80,   (op1 - 1))  \
-    X(AND,  0x100,  (op1 & op2))  \
-    X(XOR,  0x200,  (op1 ^ op2))  \
-    X(OR,   0x400,  (op1 | op2))   \
-    X(TEST, 0x800,  (op1 & op2))   \
-    X(SHL,  0x1000, (op1 << 1))   \
-    X(SHR,  0x2000, (op1 >> 1))   \
-    X(SAR,  0x4000, (op1 >> 1))   \
-    X(ROL,  0x8000, ((op1 << 1) | (op1 >> (width - 1)))) \
-    X(ROR,  0x10000, ((op1 >> 1) | (op1 << (width - 1))))
+    X(ADD,  0x01    )  \
+    X(SUB,  0x02    )  \
+    X(CMP,  0x04    )  \
+    X(NEG,  0x08    )  \
+    X(ADC,  0x10    )  \
+    X(SBB,  0x20    )  \
+    X(INC,  0x40    )  \
+    X(DEC,  0x80    )  \
+    X(AND,  0x100   )  \
+    X(XOR,  0x200   )  \
+    X(OR,   0x400   )  \
+    X(TEST, 0x800   )  \
+    X(SHL,  0x1000  )  \
+    X(SHR,  0x2000  )  \
+    X(SAR,  0x4000  )  \
+    X(ROL,  0x8000  )  \
+    X(ROR,  0x10000 )
+
 
 #define FOR_EACH_GEN_OPCLASS(X) \
     X(AAS,        0x20000) \
@@ -98,7 +99,7 @@
 
 typedef enum 
 {
-    #define X(name, value, _expr) OPC_##name = value,
+    #define X(name, value) OPC_##name = value,
     FOR_EACH_ARITH_LOGIC_OP(X)
     #undef X
 

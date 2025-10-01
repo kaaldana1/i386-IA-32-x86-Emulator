@@ -1,0 +1,11 @@
+B8 00 21 00 00                ; mov  eax, 0x2100
+BB F0 F0 F0 F0                ; mov  ebx, 0xF0F0F0F0
+89 18                         ; mov  [eax], ebx          
+B9 0F 0F 0F 0F                ; mov  ecx, 0x0F0F0F0F
+21 08                         ; and  [eax], ecx          
+23 18                         ; and  ebx, [eax]          
+BB AA 00 00 00                ; mov  ebx, 0x000000AA     
+20 18                         ; and  [eax], bl           
+22 58 01                      ; and  bl, [eax+1]         
+89 58 04                      ; mov  [eax+4], ebx       final = 0x00000000 iff all ANDs correct 
+F4

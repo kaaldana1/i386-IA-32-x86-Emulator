@@ -1,0 +1,8 @@
+B8 00 29 00 00                ; mov  eax, 0x2900
+BB FF FF FF FF                ; mov  ebx, 0xFFFFFFFF
+89 18                         ; mov  [eax], ebx
+
+40                            ; inc  eax                 ; 32-bit INC (reg) → eax=0x2901
+FE C3                         ; inc  bl                  ; 8-bit INC via r/m8 (mod=11, /0, r/m=011) → BL wraps: 0xFF→0x00
+89 58 04                      ; mov  [eax+4], ebx        ; expect 0xFFFFFF00
+F4

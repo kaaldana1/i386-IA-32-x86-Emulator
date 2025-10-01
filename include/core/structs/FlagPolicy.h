@@ -21,7 +21,7 @@ typedef enum
     FP_LOGIC_GRP_MASK = (OPC_AND | OPC_XOR | OPC_OR | OPC_TEST),
     FP_SHIFT_GRP_MASK = (OPC_SHL | OPC_SHR | OPC_SAR),
     FP_ROTATE_GRP_MASK = (OPC_ROL | OPC_ROR),
-} FlagPolicy_mask;
+} FlagPolicyMask;
 
 extern const FlagPolicy FP_ARITH_GROUP;
 extern const FlagPolicy FP_ARITH_2_GROUP;
