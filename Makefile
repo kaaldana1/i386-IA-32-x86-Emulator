@@ -23,7 +23,7 @@ CSTD     ?= -std=c11
 CPPFLAGS ?= -Iinclude
 CFLAGS   ?= $(CSTD) -Wall -Wextra -Wpedantic -g -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline
 LDFLAGS  ?=
-LDLIBS   ?=
+LDLIBS   ?= -lncurses
 
 # --- Paths & target ---
 SRC_DIR   := src

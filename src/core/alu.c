@@ -114,17 +114,19 @@ static inline void update_potential_flags(Opclass opclass, uint32_t op1, uint32_
 
 static void alu_print(uint32_t op1, uint32_t op2, int cin, ALU_out *out, const char *op)
 {
-    printf("+=====================+\n");            
-    printf("|      ALU ACCESS     |  \n");          
-    printf("|      op:  %s       |  \n", op);      
-    printf("+=====================+\n");            
-    printf("+============================+\n"); 
-    printf("|      op1: %08X        |  \n", op1); 
-    printf("|      op2: %08X        |  \n", op2); 
-    printf("|      cin: %08X        |  \n", cin); 
-    printf("|      result: %08X     |  \n", out->low); 
-    printf("|       flags: %08x     |\n",   out->flags_out); 
-    printf("+============================+\n"); 
+    /*
+    //printw("+=====================+\n");            
+    //printw("|      ALU ACCESS     |  \n");          
+    //printw("|      op:  %s       |  \n", op);      
+    //printw("+=====================+\n");            
+    //printw("+============================+\n"); 
+    //printw("|      op1: %08X        |  \n", op1); 
+    //printw("|      op2: %08X        |  \n", op2); 
+    //printw("|      cin: %08X        |  \n", cin); 
+    //printw("|      result: %08X     |  \n", out->low); 
+    //printw("|       flags: %08x     |\n",   out->flags_out); 
+    //printw("+============================+\n"); 
+    */
 }
 
 

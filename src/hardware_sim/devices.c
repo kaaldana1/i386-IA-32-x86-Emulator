@@ -1,4 +1,5 @@
 #include "hardware_sim/devices.h"
+#include "machine/display_api.h"
 
 #define DWORD_SIZE 4 
 
@@ -9,7 +10,7 @@ struct RAMDev
 
 struct CONSOLEDev
 {
-
+    uint8_t data[256];
 };
 
 RAMDev *init_ram(void)
@@ -21,7 +22,7 @@ RAMDev *init_ram(void)
 
 CONSOLEDev *init_console(void)
 {
-    CONSOLEDev *c = (CONSOLEDev*)calloc(1, sizeof(RAMDev));
+    CONSOLEDev *c = (CONSOLEDev*)calloc(1, sizeof(CONSOLEDev));
     return c;
 }
 
@@ -109,9 +110,9 @@ int console_read_stub(void *device, uint32_t *value, uint32_t address, size_t wi
 int console_write(void *device, uint32_t data, uint32_t addr, size_t width) 
 {
     (void)device; addr = 0; width = 0;
-    printf("\t+----------------+\n");
-    printf("\t| CONSOLE PRINT: | %d\n", data);
-    printf("\t+----------------+\n");
+    //printwtw("\t+----------------+\n");
+    //printwtw("\t| CONSOLE PRINT: | %d\n", data);
+    //printwtw("\t+----------------+\n");
     return 1;
 }
 

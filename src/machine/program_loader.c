@@ -15,7 +15,9 @@ Program *create_program(void)
 static int parse_file(Program *p)
 {
     FILE *fptr = fopen("src/machine/hex_code.txt", "rb");
-    if (fptr == NULL) { printf("Error opening file!\n"); exit(1); }
+    if (fptr == NULL) { 
+        return 0; 
+    }
 
     char buff[200];
     uint8_t *tmp = (uint8_t *)malloc(sizeof(buff));
@@ -50,15 +52,15 @@ void print_contents(Program *p)
 {
     if (p->program == NULL)
     {
-        printf("Invalid");
+        //printw("Invalid");
         exit(1);
     }
 
     for (size_t i = 0; i < p->program_length; i++)
     {
-        printf("%02x ", p->program[i]);
+        //printw("%02x ", p->program[i]);
     }
-    printf("\nProgram size: %zu", p->program_length);
+    //printw("\nProgram size: %zu", p->program_length);
 }
 
 static inline uint32_t create_dword(Program *p, size_t offset) 

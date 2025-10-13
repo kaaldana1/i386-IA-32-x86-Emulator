@@ -1,0 +1,26 @@
+#include "core/structs/instruction.h"  
+typedef struct CPU CPU;
+
+typedef void (*copy_instr_after_decode)(const Instruction* instr);
+typedef void (*copy_cpu_after_execute)(const CPU* cpu);
+typedef void (*copy_mem_after_execute)(const uint8_t* mem, uint32_t address);
+typedef void (*flush_ui)();
+
+typedef struct 
+{
+    copy_instr_after_decode   ui_copy_instr_after_decode;
+    copy_cpu_after_execute    ui_copy_cpu_after_execute;
+    copy_mem_after_execute    ui_copy_mem_after_execute;
+    flush_ui                  ui_flush_ui;
+} UI_Callbacks;
+
+
+typedef struct  
+{
+    CPU *cpu;
+    uint8_t *memory;
+    uint32_t mem_address;
+    UI_Callbacks ui_callbacks;
+} GlobalMachineState;
+
+extern GlobalMachineState machine_state;

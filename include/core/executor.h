@@ -12,6 +12,7 @@ typedef struct CPU CPU;
 #  define WEAKREF
 #endif
 
+
 #define X(name, _op, _2, _3, _4, _5, _6, _7) \
     extern int execute_##name(BUS*, CPU*, Instruction*) WEAKREF; 
 FOREACH_OPCODE(X)

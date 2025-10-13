@@ -4,6 +4,8 @@
 #include "core/structs/instruction.h"
 #include "ids/opcode_list.h"
 #include "core/executor.h"
+#include "core/address_translation_unit.h"
+#include "machine/display_api.h"
 
 #define NO_CIN 0
 #define CIN 1
@@ -17,86 +19,16 @@
 
 //=======================================================================================================================================================
 //=========================================================PRINT HELPERS=================================================================================
+
 void print_registers(CPU *cpu) 
 {
-    printf("\n============================= CPU STATE ============================\n");
-
-    printf("+-----------------+----------+ || +------+------ + || +----+----+\n");
-    printf("|   GPR           |  Value   | || |  SR  | Value | || |Flag|Val |\n");
-    printf("+-----------------+----------+ || +------+------ + || +----+----+\n");
-
-    const char *gpr_names[] = {
-        "EAX","ECX","EDX","EBX","EIP","EBP","ESI","EDI","ESP"
-    };
-    uint32_t gpr_vals[] = {
-        cpu->gen_purpose_registers[EAX].dword,
-        cpu->gen_purpose_registers[ECX].dword,
-        cpu->gen_purpose_registers[EDX].dword,
-        cpu->gen_purpose_registers[EBX].dword,
-        cpu->gen_purpose_registers[EIP].dword,
-        cpu->gen_purpose_registers[EBP].dword,
-        cpu->gen_purpose_registers[ESI].dword,
-        cpu->gen_purpose_registers[EDI].dword,
-        cpu->gen_purpose_registers[ESP].dword
-    };
-    const char *sr_names[] = {"CS","DS","ES","FS","GS","SS"};
-    uint16_t sr_vals[] = {
-        cpu->segment_registers[CS].selector,
-        cpu->segment_registers[DS].selector,
-        cpu->segment_registers[ES].selector,
-        cpu->segment_registers[FS].selector,
-        cpu->segment_registers[GS].selector,
-        cpu->segment_registers[SS].selector
-    };
-    const char *flag_names[] = {"CF","PF","AF","ZF","SF","OF"};
-    int flag_vals[] = {
-        !!(cpu->status_register & CF),
-        !!(cpu->status_register & PF),
-        !!(cpu->status_register & AF),
-        !!(cpu->status_register & ZF),
-        !!(cpu->status_register & SF),
-        !!(cpu->status_register & OF)
-    };
-
-    int max_rows = 9; // gprs
-    for (int i = 0; i < max_rows; i++) {
-        // gpr column
-        if (i < 9)
-            printf("| %-15s | %08X |", gpr_names[i], gpr_vals[i]);
-        else
-            printf("| %-15s | %-8s |", "", "");
-
-        // divider
-        printf(" || ");
-
-        // SR column
-        if (i < 6)
-            printf("| %-3s  | %04X  |", sr_names[i], sr_vals[i]);
-        else
-            printf("| %-3s  | %-4s  |", "", "");
-
-        // divider
-        printf(" || ");
-
-        // flag column
-        if (i < 6)
-            printf("| %-3s | %d |", flag_names[i], flag_vals[i]);
-        else
-            printf("| %-3s | %-2s|", "", "");
-
-        printf("\n");
-    }
-
-    printf("+-----------------+----------+ || +------+------ + || +----+----+\n");
-    printf("\n====================================================================\n");
 }
-
 
 static void print_cell(uint8_t byte, uint32_t address) 
 {
-    printf("                +--------+ \n");
-    printf(" Address %04X : | %02X     | \n", address, byte);
-    printf("                +--------+ \n");
+    //printw("                +--------+ \n");
+    //printw(" Address %04X : | %02X     | \n", address, byte);
+    //printw("                +--------+ \n");
 }
 
 static void print_dword(uint32_t dword, uint32_t address) 
@@ -107,13 +39,13 @@ static void print_dword(uint32_t dword, uint32_t address)
 
 static void print_imm_reg(CPU *cpu,  Instruction *decoded_instr)
 {
-    printf("Immediate bytes (LSB -> GSB)\n");
+    //printw("Immediate bytes (LSB -> GSB)\n");
     for (int i = 0; i < decoded_instr->immediate_length; i++) {
-        printf(" %02x  ", decoded_instr->immediate[i]);
+        //printw(" %02x  ", decoded_instr->immediate[i]);
     }
-    printf("\n");
+    //printw("\n");
     print_registers(cpu);
-    printf("===================EXECUTE DONE======================\n");
+    //printw("===================EXECUTE DONE======================\n");
 }
 
 //=======================================================================================================================================================
@@ -248,7 +180,7 @@ static int update_status_register(CPU *cpu, Opclass opc, uint16_t possible_flags
     possible_flags = (opc & OPC_USES_BORROW_MASK) ? ((possible_flags & ~(1 << 2)) | (borrow_bit << 2) ) :
                                                     ((opc & OPC_USES_CARRY_MASK) ? possible_flags : 
                                                                                    possible_flags & ~(1 << 2));
-    printf("Possible flags: %x\n", possible_flags);
+    //printw("Possible flags: %x\n", possible_flags);
     uint16_t permissible = get_FlagPolicy(opc).write;
     cpu->status_register &= ~permissible; 
     cpu->status_register |= (permissible & possible_flags); 
@@ -273,7 +205,7 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
         update_status_register(cpu, opclass, out.flags_out);
 
         print_registers(cpu);                                                                                       
-        printf("Result is: %02x\n", out.low);                                                                        
+        //printw("Result is: %02x\n", out.low);                                                                        
     }                                                                                                               
     else                                                                                                            
     {                                                                                                               
@@ -281,8 +213,8 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
         uint32_t mem_value = 0;
         uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
         bus_read(bus, &mem_value, effective_addr, width);
-        printf("Effective address calculated: %08X\n", effective_addr);
-        printf("Value at effective address: %02x\n", mem_value);
+        //printw("Effective address calculated: %08X\n", effective_addr);
+        //printw("Value at effective address: %02x\n", mem_value);
 
         ALU_out out = { .cin = 0, .low = 0, .high = 0, .flags_out = 0 };
 
@@ -297,9 +229,9 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
         update_status_register(cpu, opclass, out.flags_out);                                                        
 
         print_registers(cpu);                                                                                       
-        printf("Result is: %02x\n", out.low);                                                                       
+        //printw("Result is: %02x\n", out.low);                                                                       
     }                                                                                                               
-    printf("===================EXECUTE DONE======================\n");                                              
+    //printw("===================EXECUTE DONE======================\n");                                              
     return 1; 
 }
 
@@ -315,7 +247,7 @@ static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
             set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, out.low, width);
         update_status_register(cpu, opclass, out.flags_out);
 
-        printf("Result: %02x\n", out.low);
+        //printw("Result: %02x\n", out.low);
     }                                                                                                               
     else                                                                                                            
     {                                                                                                               
@@ -332,10 +264,10 @@ static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
             set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width, out.low);
         update_status_register(cpu, opclass, out.flags_out);
 
-        printf("Result: %02x\n", out.low);                                                                           
+        //printw("Result: %02x\n", out.low);                                                                           
     }                                                                                                               
     print_registers(cpu);                                                                                           
-    printf("===================EXECUTE DONE======================\n");                                              
+    //printw("===================EXECUTE DONE======================\n");                                              
     return 0;                                                                                                       
 }
 
@@ -344,25 +276,25 @@ static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
 
 int execute_ADD_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADD_RM8_R8======================\n");
+    //printw("===================EXECUTING ADD_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADD_RM32_R32======================\n");
+    //printw("===================EXECUTING ADD_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADD_R8_RM8======================\n");
+    //printw("===================EXECUTING ADD_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADD_R32_RM32======================\n");
+    //printw("===================EXECUTING ADD_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_ADD, NO_CIN);
 }
 
@@ -376,25 +308,25 @@ int execute_POP_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; 
 
 int execute_OR_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING OR_RM8_R8======================\n");
+    //printw("===================EXECUTING OR_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_OR, NO_CIN);
 }
 
 int execute_OR_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING OR_RM32_R32======================\n");
+    //printw("===================EXECUTING OR_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_OR, NO_CIN);
 }
 
 int execute_OR_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING OR_R8_RM8======================\n");
+    //printw("===================EXECUTING OR_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_OR, NO_CIN);
 }
 
 int execute_OR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING OR_R32_RM32======================\n");
+    //printw("===================EXECUTING OR_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_OR, NO_CIN);
 }
 
@@ -404,7 +336,7 @@ int execute_OR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_ADC_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADC_RM8_R8======================\n");
+    //printw("===================EXECUTING ADC_RM8_R8======================\n");
     
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_ADC, cin);
@@ -412,21 +344,21 @@ int execute_ADC_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_ADC_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADC_RM32_R32======================\n");
+    //printw("===================EXECUTING ADC_RM32_R32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_ADC, cin);
 }
 
 int execute_ADC_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADC_R8_RM8======================\n");
+    //printw("===================EXECUTING ADC_R8_RM8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_ADC, cin);
 }
 
 int execute_ADC_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING ADC_R32_RM32======================\n");
+    //printw("===================EXECUTING ADC_R32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_ADC, cin);
 }
@@ -438,28 +370,28 @@ int execute_POP_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; 
 
 int execute_SBB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SBB_RM8_R8======================\n");
+    //printw("===================EXECUTING SBB_RM8_R8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_SBB, cin);
 }
 
 int execute_SBB_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SBB_RM32_RM32======================\n");
+    //printw("===================EXECUTING SBB_RM32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_SBB, cin);
 }
 
 int execute_SBB_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SBB_R8_RM8======================\n");
+    //printw("===================EXECUTING SBB_R8_RM8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_SBB, cin);
 }
 
 int execute_SBB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SBB_R32_RM32======================\n");
+    //printw("===================EXECUTING SBB_R32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_SBB, cin);
 }
@@ -469,25 +401,25 @@ int execute_SBB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 //===============================================================20 - 2F=================================================================================
 int execute_AND_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING AND_RM8_R8======================\n");
+    //printw("===================EXECUTING AND_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_AND, NO_CIN);
 }
 
 int execute_AND_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING AND_RM32_R32======================\n");
+    //printw("===================EXECUTING AND_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_AND, NO_CIN);
 }
 
 int execute_AND_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING AND_R8_RM8======================\n");
+    //printw("===================EXECUTING AND_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_AND, NO_CIN);
 }
 
 int execute_AND_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING AND_R32_RM32======================\n");
+    //printw("===================EXECUTING AND_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_AND, NO_CIN);
 }
 
@@ -499,25 +431,25 @@ int execute_DAA           (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (
 
 int execute_SUB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SUB_RM8_R8======================\n");
+    //printw("===================EXECUTING SUB_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SUB_RM32_R32======================\n");
+    //printw("===================EXECUTING SUB_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SUB_R8_RM8======================\n");
+    //printw("===================EXECUTING SUB_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING SUB_R32_RM32======================\n");
+    //printw("===================EXECUTING SUB_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_SUB, NO_CIN);
 }
 
@@ -527,25 +459,25 @@ int execute_SUB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_XOR_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING XOR_RM8_R8======================\n");
+    //printw("===================EXECUTING XOR_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING XOR_RM32_R32======================\n");
+    //printw("===================EXECUTING XOR_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING XOR_R8_RM8======================\n");
+    //printw("===================EXECUTING XOR_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING XOR_R32_RM32======================\n");
+    //printw("===================EXECUTING XOR_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_XOR, NO_CIN);
 }
 
@@ -555,25 +487,25 @@ int execute_XOR_EAX_IMM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { 
 
 int execute_CMP_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING CMP_RM8_R8======================\n");
+    //printw("===================EXECUTING CMP_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING CMP_RM32_R32======================\n");
+    //printw("===================EXECUTING CMP_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING CMP_R8_RM8======================\n");
+    //printw("===================EXECUTING CMP_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING CMP_R32_RM32======================\n");
+    //printw("===================EXECUTING CMP_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_CMP, NO_CIN);
 }
 
@@ -602,49 +534,49 @@ static int alu_increment_register(BUS *bus, CPU *cpu, Instruction *decoded_instr
 
 int execute_INC_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_EAX======================\n");
+    //printw("===================EXECUTING INC_EAX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_ECX======================\n");
+    //printw("===================EXECUTING INC_ECX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_EDX======================\n");
+    //printw("===================EXECUTING INC_EDX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_EBX======================\n");
+    //printw("===================EXECUTING INC_EBX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_ESP======================\n");
+    //printw("===================EXECUTING INC_ESP======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EBP(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_EBP======================\n");
+    //printw("===================EXECUTING INC_EBP======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_ESI(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_ESI======================\n");
+    //printw("===================EXECUTING INC_ESI======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING INC_EDI======================\n");
+    //printw("===================EXECUTING INC_EDI======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
@@ -652,28 +584,186 @@ int execute_INC_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 //=======================================================================================================================================================
 //===============================================================50 - 5F=================================================================================
 
-int execute_PUSH_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_EBP(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_ESI(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_PUSH_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_EBP(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_ESI(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_POP_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr) {(void) bus; (void)cpu; (void)decoded_instr; return 0; }
+// first decrements ESP by four, then pushes contents at address
+// loads first byte of DWORD at [SS:ESP], then second byte at [SS:ESP] + 1, etc...
+static int push_gpr(BUS *bus, CPU *cpu, Instruction *decoded_instr, GeneralPurposeRegisterType gpr)
+{
+    set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 4);
+    bus_write(bus, gpr32(cpu, gpr), address_translator(cpu, SS, ESP), 32);
+    return 1;
+}
+
+// first transfers the dword at the current top of stack to destination operand
+// increments ESP to point to new top of stack
+static int pop_gpr(BUS *bus, CPU *cpu, Instruction *decoded_instr, GeneralPurposeRegisterType gpr)
+{
+    uint32_t popped_data;
+    bus_read(bus, &popped_data, address_translator(cpu, SS, ESP), 32);
+    set_gpr32(cpu, gpr, popped_data);
+    bus_write(bus, 0, address_translator(cpu, SS, ESP), 32); // clear stack 
+    set_gpr32(cpu, ESP, gpr32(cpu, ESP) + 4);
+    return 1;
+}
+
+int execute_PUSH_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    //printw("===================EXECUTING PUSH_EAX======================\n");
+    return push_gpr(bus, cpu, decoded_instr, EAX);
+} 
+
+int execute_PUSH_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_ECX======================\n");
+    return push_gpr(bus, cpu, decoded_instr, ECX);
+} 
+
+int execute_PUSH_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_EDX======================\n");
+    return push_gpr(bus, cpu, decoded_instr, EDX);
+} 
+
+int execute_PUSH_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_EBX======================\n");
+    return push_gpr(bus, cpu, decoded_instr, EBX);
+} 
+
+int execute_PUSH_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_ESP======================\n");
+    return push_gpr(bus, cpu, decoded_instr, ESP);
+} 
+
+int execute_PUSH_EBP(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_EBP======================\n");
+    return push_gpr(bus, cpu, decoded_instr, EBP);
+} 
+
+int execute_PUSH_ESI(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_ESI======================\n");
+    return push_gpr(bus, cpu, decoded_instr, ESI);
+} 
+
+int execute_PUSH_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSH_EDI======================\n");
+    return push_gpr(bus, cpu, decoded_instr, EDI);
+} 
+
+int execute_POP_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    //printw("===================EXECUTING POP_EAX======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, EAX);
+} 
+
+int execute_POP_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_ECX======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, ECX);
+} 
+
+int execute_POP_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_EDX======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, EDX);
+} 
+
+int execute_POP_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_EBX======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, EBX);
+} 
+
+int execute_POP_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_ESP======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, ESP);
+} 
+
+int execute_POP_EBP(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_EBP======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, EBP);
+} 
+
+int execute_POP_ESI(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_ESI======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, ESI);
+} 
+
+int execute_POP_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POP_EDI======================\n");
+    return pop_gpr(bus, cpu, decoded_instr, EDI);
+} 
+
 
 //=======================================================================================================================================================
 //===============================================================60 - 6F=================================================================================
 
-int execute_PUSHA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { return 0; }
-int execute_POPA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { return 0; }
+int execute_PUSHA(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING PUSHA======================\n");
+    execute_PUSH_EAX(bus, cpu, decoded_instr);
+    execute_PUSH_ECX(bus, cpu, decoded_instr);
+    execute_PUSH_EDX(bus, cpu, decoded_instr);
+    execute_PUSH_EBX(bus, cpu, decoded_instr);
+    execute_PUSH_ESP(bus, cpu, decoded_instr);
+    execute_PUSH_EBP(bus, cpu, decoded_instr);
+    execute_PUSH_ESI(bus, cpu, decoded_instr);
+    execute_PUSH_EDI(bus, cpu, decoded_instr);
+    return 1;
+}
+
+int execute_POPA(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    //printw("===================EXECUTING POPA======================\n");
+    execute_POP_EAX(bus, cpu, decoded_instr);
+    execute_POP_ECX(bus, cpu, decoded_instr);
+    execute_POP_EDX(bus, cpu, decoded_instr);
+    execute_POP_EBX(bus, cpu, decoded_instr);
+    execute_POP_ESP(bus, cpu, decoded_instr);
+    execute_POP_EBP(bus, cpu, decoded_instr);
+    execute_POP_ESI(bus, cpu, decoded_instr);
+    execute_POP_EDI(bus, cpu, decoded_instr);
+    return 1;
+}
+
+
+// first decrements ESP by four, then pushes immediate at address
+// loads first byte of DWORD at [SS:ESP], then second byte at [SS:ESP] + 1, etc...
+static int push_imm32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 4);
+    bus_write(bus, get_imm(decoded_instr), address_translator(cpu, SS, ESP), 32);
+    return 1;
+}
+
+static int push_imm8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 1);
+    bus_write(bus, 0xFF & get_imm(decoded_instr), address_translator(cpu, SS, ESP), 8);
+    return 1;
+}
+
+//0x68
+int execute_PUSH_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    //printw("===================EXECUTING PUSH_IMM32======================\n");
+    return push_imm32(bus, cpu, decoded_instr);
+}
+
+//0x6A
+int execute_PUSH_IMM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    //printw("===================EXECUTING PUSH_IMM8======================\n");
+    return push_imm8(bus, cpu, decoded_instr);
+}
+
 int execute_BOUND_GV_MA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { return 0; }
 
 //=======================================================================================================================================================
@@ -689,31 +779,31 @@ int execute_IMM_GRP_EV_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   {
 
 int execute_TEST_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING TEST_RM8_R8======================\n");
+    //printw("===================EXECUTING TEST_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_TEST, NO_CIN);
 }
 
 int execute_TEST_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING TEST_RM32_R32======================\n");
+    //printw("===================EXECUTING TEST_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_TEST, NO_CIN);
 }
 
 int execute_TEST_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING TEST_R8_RM8======================\n");
+    //printw("===================EXECUTING TEST_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_TEST, NO_CIN);
 }
 
 int execute_TEST_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING TEST_R32_RM32======================\n");
+    //printw("===================EXECUTING TEST_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_TEST, NO_CIN);
 }
 
 int execute_MOV_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    printf("\n========Executing MOV_RM8_R8...============\n");
+    //printw("\n========Executing MOV_RM8_R8...============\n");
     uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
     uint32_t reg_src_value = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8);
 
@@ -726,13 +816,13 @@ int execute_MOV_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
         bus_write(bus, reg_src_value, effective_addr, 8);
         print_cell((uint8_t)reg_src_value, effective_addr);
     }
-    printf("===================EXECUTE DONE======================\n");
+    //printw("===================EXECUTE DONE======================\n");
     return 1;
 }
 
 int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    printf("\n========Executing MOV_RM32_R32...============\n");
+    //printw("\n========Executing MOV_RM32_R32...============\n");
     uint32_t reg_src_value = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 32);
 
     if (decoded_instr->mod == 0x3) {
@@ -745,18 +835,18 @@ int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         bus_write(bus, reg_src_value, effective_addr, 32);
         print_dword(reg_src_value, effective_addr);
     }
-    printf("===================EXECUTE DONE======================\n");
+    //printw("===================EXECUTE DONE======================\n");
     return 1;
 }
 
 int execute_MOV_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr)    
 {
-    printf("\n========Executing MOV_R8_RM8...============\n");
+    //printw("\n========Executing MOV_R8_RM8...============\n");
 
     if (decoded_instr->mod == 0x3) 
     {
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8, gpr_w_handler(cpu, decoded_instr->rm_field, 8));
-        printf("Value %x moved to register\n", gpr_w_handler(cpu, decoded_instr->rm_field, 8));
+        //printw("Value %x moved to register\n", gpr_w_handler(cpu, decoded_instr->rm_field, 8));
     }
 
     else 
@@ -764,19 +854,20 @@ int execute_MOV_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         uint32_t from_mem_value = 0;
         bus_read(bus, &from_mem_value, calculate_EA(cpu, decoded_instr), 8);
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8, from_mem_value);
-        printf("Value %x moved to register\n", from_mem_value);
+        //printw("Value %x moved to register\n", from_mem_value);
     }
     print_registers(cpu);
+    return 1;
 }
 
 int execute_MOV_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    printf("\n========Executing MOV_R32_RM32...============\n");
+    //printw("\n========Executing MOV_R32_RM32...============\n");
 
     if (decoded_instr->mod == 0x3) 
     {
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 32, gpr_w_handler(cpu, decoded_instr->rm_field, 32));
-        printf("Value %x moved to register\n", gpr_w_handler(cpu, decoded_instr->rm_field, 32));
+        //printw("Value %x moved to register\n", gpr_w_handler(cpu, decoded_instr->rm_field, 32));
     }
 
     else 
@@ -784,9 +875,10 @@ int execute_MOV_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         uint32_t from_mem_value = 0;
         bus_read(bus, &from_mem_value, calculate_EA(cpu, decoded_instr), 32);
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 32, from_mem_value);
-        printf("Value %x moved to register\n", from_mem_value);
+        //printw("Value %x moved to register\n", from_mem_value);
     }
     print_registers(cpu);
+    return 1;
 }
 
 int execute_LEA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
@@ -815,7 +907,7 @@ int execute_MOV_R8_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   {
 
 int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_EAX_IMM32======================\n");
+    //printw("===================EXECUTING MOV_EAX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EAX, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -824,7 +916,7 @@ int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_ECX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_ECX_IMM32======================\n");
+    //printw("===================EXECUTING MOV_ECX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ECX, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -833,7 +925,7 @@ int execute_MOV_ECX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_EDX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_EDX_IMM32======================\n");
+    //printw("===================EXECUTING MOV_EDX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EDX, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -842,7 +934,7 @@ int execute_MOV_EDX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_EBX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_EBX_IMM32======================\n");
+    //printw("===================EXECUTING MOV_EBX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EBX, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -851,7 +943,7 @@ int execute_MOV_EBX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_ESP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_ESP_IMM32======================\n");
+    //printw("===================EXECUTING MOV_ESP_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ESP, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -860,7 +952,7 @@ int execute_MOV_ESP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_EBP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_EBP_IMM32======================\n");
+    //printw("===================EXECUTING MOV_EBP_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EBP, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -869,7 +961,7 @@ int execute_MOV_EBP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_ESI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_ESI_IMM32======================\n");
+    //printw("===================EXECUTING MOV_ESI_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ESI, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -878,7 +970,7 @@ int execute_MOV_ESI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_MOV_EDI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    printf("===================EXECUTING MOV_EDI_IMM32======================\n");
+    //printw("===================EXECUTING MOV_EDI_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EDI, 32, get_imm(decoded_instr));
     print_imm_reg(cpu, decoded_instr);
@@ -912,7 +1004,7 @@ int execute_JMP_REL8      (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (vo
 
 int execute_CLC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
-    printf("===================EXECUTING CLC======================\n");
+    //printw("===================EXECUTING CLC======================\n");
     cpu->status_register &= ~(CF);
     print_registers(cpu);
     return 1;
@@ -920,7 +1012,7 @@ int execute_CLC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 
 int execute_STC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
-    printf("===================EXECUTING STC======================\n");
+    //printw("===================EXECUTING STC======================\n");
     cpu->status_register |= CF;
     print_registers(cpu);
     return 1;
@@ -932,9 +1024,9 @@ int execute_HLT (BUS *bus, CPU *cpu, Instruction *decoded_instr)
     (void)bus;
     (void)decoded_instr;
     // raise HLT flag
-    printf("===================EXECUTING HALT======================\n");
+    //printw("===================EXECUTING HALT======================\n");
     cpu->halt = 1;
-    printf("\nProgram HALTED\n");
+    //printw("\nProgram HALTED\n");
     return 1;
 }
 

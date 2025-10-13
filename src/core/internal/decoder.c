@@ -125,8 +125,8 @@ static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
             decoded_instr->OpcodeID = opcode;
 
 #ifdef DEBUG
-            printf("\nOPCODE is: %d\n", opcode);
-            printf("Byte: %02x\n", decoded_instr->opcode[0]);
+            //printw("\nOPCODE is: %d\n", opcode);
+            //printw("Byte: %02x\n", decoded_instr->opcode[0]);
 #endif
 
             break;
@@ -171,12 +171,12 @@ static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
         decoded_instr->rm_field = rm_field;
 
 #ifdef DEBUG
-        printf("Has Imm: %zu\n", instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes);
-        printf("Modrm byte: %02x\n", decoded_instr->modrm);
+        //printw("Has Imm: %zu\n", instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes);
+        //printw("Modrm byte: %02x\n", decoded_instr->modrm);
 
-        printf("Mod: %02x\n", decoded_instr->mod);
-        printf("reg_or_opcode: %02x\n", decoded_instr->reg_or_opcode);
-        printf("rm_field: %02x\n", decoded_instr->rm_field);
+        //printw("Mod: %02x\n", decoded_instr->mod);
+        //printw("reg_or_opcode: %02x\n", decoded_instr->reg_or_opcode);
+        //printw("rm_field: %02x\n", decoded_instr->rm_field);
 
 #endif
     }
@@ -229,11 +229,11 @@ static void decode_imm(Instruction *decoded_instr, Cursor *cursor)
 
 Instruction *decoder(uint8_t *encoded_instr)
 {
-    printf("/////////////////////////////////////////////////////////////////////\n");
-    printf("/////////////////////////////////////////////////////////////////////\n");
-    printf("/////////////////////////////////////////////////////////////////////\n");
-    printf("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-    printf("\n==================Decoding===================\n");
+    //printw("/////////////////////////////////////////////////////////////////////\n");
+    //printw("/////////////////////////////////////////////////////////////////////\n");
+    //printw("/////////////////////////////////////////////////////////////////////\n");
+    //printw("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
+    //printw("\n==================Decoding===================\n");
 
 
     Instruction *decoded_instr = calloc(1, sizeof(Instruction));
@@ -256,7 +256,7 @@ Instruction *decoder(uint8_t *encoded_instr)
                                   decoded_instr->displacement_length + 
                                   decoded_instr->immediate_length; 
 
-    printf("\n==============Decoding DONE==================\n");
+    //printw("\n==============Decoding DONE==================\n");
     return decoded_instr;
 }
 

@@ -1,7 +1,7 @@
 #ifndef EXECUTE_TABLES_H
 #define EXECUTE_TABLES_H
 
-#include "core/structs/instruction.h"  // use the canonical Instruction definition
+#include "core/structs/instruction.h"  
 
 typedef struct BUS BUS;
 typedef struct CPU CPU;

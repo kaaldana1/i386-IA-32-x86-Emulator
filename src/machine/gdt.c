@@ -20,6 +20,7 @@
 #define USER_CODE_RX     (PRESENT | DESC_DPL3 | SEG_DESCTYPE(1) | EXECUTABLE | RW) //0xFA
 #define KERNEL_CODE_RX   (PRESENT | DESC_DPL0 | SEG_DESCTYPE(1) | EXECUTABLE | RW) //0x9A
 #define KERNEL_DATA_RW   (PRESENT | DESC_DPL0 | SEG_DESCTYPE(1) | RW)   //0x92
+#define STACK            (PRESENT | DESC_DPL0 | SEG_DESCTYPE(1) | RW)   //0x92
 
 inline static uint64_t create_descriptor(uint32_t base, uint32_t limit, 
                                          uint8_t access, uint8_t flags) 
@@ -45,11 +46,11 @@ inline static int create_gdt_entry(BUS *bus,  uint32_t addr, uint64_t descriptor
 
 int create_gdt(BUS *bus, uint32_t table_addr) 
 {
-    create_gdt_entry(bus, table_addr, create_descriptor(0, 0, 0x00, 0x00));
-    create_gdt_entry(bus, (table_addr + 8), create_descriptor(0x0000, 0x07FF, KERNEL_CODE_RX, 0x04));
-    create_gdt_entry(bus, (table_addr + 16), create_descriptor(0x0800, 0x07FF, KERNEL_DATA_RW, 0x04));
-    create_gdt_entry(bus, (table_addr + 24), create_descriptor(0x1000, 0x27FF, USER_CODE_RX, 0x04));
-    create_gdt_entry(bus, (table_addr + 32), create_descriptor(0x1800, 0x27FF, USER_DATA_RW, 0x04));
+    create_gdt_entry(bus, table_addr, create_descriptor(0, 0, 0x00, 0x00)); // null descriptor
+    create_gdt_entry(bus, (table_addr + 8), create_descriptor (0x0000, 0x07FF, KERNEL_CODE_RX, 0x04));
+    create_gdt_entry(bus, (table_addr + 16), create_descriptor(0x0800, 0x07FF, USER_CODE_RX, 0x04));
+    create_gdt_entry(bus, (table_addr + 24), create_descriptor(0x1000, 0x27FF, USER_DATA_RW, 0x04));
+    create_gdt_entry(bus, (table_addr + 32), create_descriptor(0x1800, 0x27FF, STACK, 0x04));
     return 1;
 }
 

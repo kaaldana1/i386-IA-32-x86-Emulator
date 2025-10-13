@@ -1,4 +1,6 @@
 #include "core/cpu.h"
+#include "core/address_translation_unit.h"
+#include "machine/display_api.h"
 #define MAX_INSTR_LENGTH 16
 
 
@@ -50,18 +52,18 @@ CPU *create_cpu(void)
     return cpu;
 }
 
-int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t start_eip, uint32_t start_esp, 
-                            uint32_t gdtr_base, uint32_t gdtr_size)
+int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t gdtr_base, uint32_t gdtr_size)
 {
     cpu->gdtr.base = gdtr_base;
     cpu->gdtr.size = gdtr_size;
 
-    cpu->gen_purpose_registers[EIP].dword = start_eip;
-    cpu->gen_purpose_registers[ESP].dword = start_esp;
+    cpu->segment_registers[CS].selector = 0x13;
+    cpu->segment_registers[DS].selector = 0x1B;
+    cpu->segment_registers[SS].selector = 0x23;
 
-    cpu->segment_registers[CS].selector = 0x0018;
-    cpu->segment_registers[DS].selector = 0x0023;
-    cpu->segment_registers[SS].selector = 0x0023;
+    // changed: EIP and ESP are purely offsets
+    cpu->gen_purpose_registers[EIP].dword = 0;
+    cpu->gen_purpose_registers[ESP].dword = 0;
 
     set_SegmentRegister_cache(bus, cpu, CS);
     set_SegmentRegister_cache(bus, cpu, DS);
@@ -104,6 +106,7 @@ static int prefetch (BUS *bus, uint32_t *queue, uint32_t addr)
     return 1;
 }
 
+
 int interpreter(CPU *cpu, BUS *bus) 
 {
     uint32_t start_addr;
@@ -112,18 +115,16 @@ int interpreter(CPU *cpu, BUS *bus)
 
     uint32_t instr_queue[MAX_INSTR_LENGTH / 4];
     uint8_t byte_instr_queue[MAX_INSTR_LENGTH];
-    while(cpu->gen_purpose_registers[EIP].dword < (CS_base + CS_limit) && !cpu->halt) 
+    while(address_translator(cpu, CS, EIP) < (CS_base + CS_limit) && !cpu->halt) 
     {
-        start_addr = cpu->gen_purpose_registers[EIP].dword;
+        start_addr = address_translator(cpu, CS, EIP);
         prefetch(bus, instr_queue, start_addr);
         to_byte_array(instr_queue, byte_instr_queue);
         Instruction *decoded_instruction = decoder(byte_instr_queue);
+
         cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
-        if ((*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction)) 
-        {
-            printf("\n+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
-        }
+        (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
     }
     return 1;
 }
