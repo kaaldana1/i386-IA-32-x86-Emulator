@@ -20,21 +20,22 @@
 //=======================================================================================================================================================
 //=========================================================PRINT HELPERS=================================================================================
 
-void print_registers(CPU *cpu) 
-{
-}
 
 static void print_cell(uint8_t byte, uint32_t address) 
 {
-    //printw("                +--------+ \n");
-    //printw(" Address %04X : | %02X     | \n", address, byte);
-    //printw("                +--------+ \n");
+    uint8_t *byte_buffer = (uint8_t *)malloc(4);
+    byte_buffer[0] = byte;
+    
+    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 static void print_dword(uint32_t dword, uint32_t address) 
 {
+    uint8_t *byte_buffer = (uint8_t *)malloc(4);
     for(size_t shift = 0; shift <= 24; shift += 8)
-        print_cell((dword & (0x000000FF << shift)) >> shift, address++);
+        byte_buffer[shift/8] = (uint8_t)(dword & ((uint32_t)0xFF << shift) >> shift);
+    
+    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 static void print_imm_reg(CPU *cpu,  Instruction *decoded_instr)
@@ -44,7 +45,6 @@ static void print_imm_reg(CPU *cpu,  Instruction *decoded_instr)
         //printw(" %02x  ", decoded_instr->immediate[i]);
     }
     //printw("\n");
-    print_registers(cpu);
     //printw("===================EXECUTE DONE======================\n");
 }
 
@@ -204,7 +204,6 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
             set_gpr_w_handler(cpu, decoded_instr->rm_field, width, out.low);
         update_status_register(cpu, opclass, out.flags_out);
 
-        print_registers(cpu);                                                                                       
         //printw("Result is: %02x\n", out.low);                                                                        
     }                                                                                                               
     else                                                                                                            
@@ -228,7 +227,6 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
         }
         update_status_register(cpu, opclass, out.flags_out);                                                        
 
-        print_registers(cpu);                                                                                       
         //printw("Result is: %02x\n", out.low);                                                                       
     }                                                                                                               
     //printw("===================EXECUTE DONE======================\n");                                              
@@ -266,7 +264,6 @@ static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
 
         //printw("Result: %02x\n", out.low);                                                                           
     }                                                                                                               
-    print_registers(cpu);                                                                                           
     //printw("===================EXECUTE DONE======================\n");                                              
     return 0;                                                                                                       
 }
@@ -529,7 +526,6 @@ static int alu_increment_register(BUS *bus, CPU *cpu, Instruction *decoded_instr
     set_gpr_w_handler(cpu, destination_register, 32, out.low);
     update_status_register(cpu, OPC_INC, out.flags_out);
 
-    print_registers(cpu);
 }
 
 int execute_INC_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
@@ -810,7 +806,6 @@ int execute_MOV_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     if (decoded_instr->mod == 0x3) {
         // r/m is  a register, write to it
         set_gpr_w_handler(cpu, decoded_instr->rm_field, 8, reg_src_value);
-        print_registers(cpu);
     } else {
         // r/m is memory, write to it
         bus_write(bus, reg_src_value, effective_addr, 8);
@@ -828,7 +823,6 @@ int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
     if (decoded_instr->mod == 0x3) {
         // r/m is  a register, write to it
         set_gpr_w_handler(cpu, decoded_instr->rm_field, 32, reg_src_value);
-        print_registers(cpu);
     } else {
         // r/m is memory, write to it
         uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
@@ -856,7 +850,6 @@ int execute_MOV_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8, from_mem_value);
         //printw("Value %x moved to register\n", from_mem_value);
     }
-    print_registers(cpu);
     return 1;
 }
 
@@ -877,7 +870,6 @@ int execute_MOV_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 32, from_mem_value);
         //printw("Value %x moved to register\n", from_mem_value);
     }
-    print_registers(cpu);
     return 1;
 }
 
@@ -1006,7 +998,6 @@ int execute_CLC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
     //printw("===================EXECUTING CLC======================\n");
     cpu->status_register &= ~(CF);
-    print_registers(cpu);
     return 1;
 }
 
@@ -1014,7 +1005,6 @@ int execute_STC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
     //printw("===================EXECUTING STC======================\n");
     cpu->status_register |= CF;
-    print_registers(cpu);
     return 1;
 }
 

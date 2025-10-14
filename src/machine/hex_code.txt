@@ -1,12 +1,15 @@
-B8 00 28 00 00                ; mov  eax, 0x2800
-BB 00 11 22 33                ; mov  ebx, 0x33221100
+B8 00 24 00 00                ; mov  eax, 0x2400
+BB FF FF FF FF                ; mov  ebx, 0xFFFFFFFF
 89 18                         ; mov  [eax], ebx
-
-32 18                         ; xor  bl, [eax]           ; r8,rm8 → BL ^= 0x00 → BL unchanged
-30 58 01                      ; xor  [eax+1], bl         ; rm8,r8 → 0x11 ^ BL
-B9 FF FF FF FF                ; mov  ecx, 0xFFFFFFFF
-31 08                         ; xor  [eax], ecx          ; rm32,r32 → invert dword
-33 18                         ; xor  ebx, [eax]          ; r32,rm32 → ebx ^= inverted → dependence chain
-
-89 58 04                      ; mov  [eax+4], ebx
+B9 00 00 00 00                ; mov  ecx, 0x00000000
+F9                            ; stc                      ; CF=1 to influence ADC
+11 08                         ; adc  [eax], ecx          ; rm32,r32 → [eax]=0x00000000 (carry in)
+13 18                         ; adc  ebx, [eax]          ; r32,rm32 → ebx=0x00000000 + CF(0) → 0
+BB 7F 00 00 00                ; mov  ebx, 0x0000007F     ; BL=0x7F
+F8                            ; clc                      ; CF=0
+10 18                         ; adc  [eax], bl           ; rm8,r8 → low byte stays 0x00
+F9                            ; stc                      ; CF=1
+12 58 01                      ; adc  bl, [eax+1]         ; r8,rm8 → BL=0x7F + 0 + 1 = 0x80
+89 58 04                      ; mov  [eax+4], ebx        ; expect 0x00000080
 F4
+

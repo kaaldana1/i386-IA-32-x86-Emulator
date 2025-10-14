@@ -124,7 +124,12 @@ int interpreter(CPU *cpu, BUS *bus)
 
         cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
+        machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
+
         (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+        machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
+
+        machine_state.ui_callbacks.ui_flush_ui();
     }
     return 1;
 }
