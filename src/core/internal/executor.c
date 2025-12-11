@@ -4,11 +4,13 @@
 #include "core/structs/instruction.h"
 #include "ids/opcode_list.h"
 #include "core/executor.h"
-#include "core/address_translation_unit.h"
+#include "core/int_utils.h"
 #include "machine/display_api.h"
 
 #define NO_CIN 0
 #define CIN 1
+#define INVALID 0
+#define VALID 1
 
 #define OPC_THROW_RESULT_MASK ( OPC_CMP | OPC_TEST )
 #define OPC_USES_CARRY_MASK (OPC_ADD | OPC_ADC | OPC_INC | OPC_MUL | OPC_IMUL )
@@ -26,7 +28,9 @@ static void print_cell(uint8_t byte, uint32_t address)
     uint8_t *byte_buffer = (uint8_t *)malloc(4);
     byte_buffer[0] = byte;
     
+    #ifdef NCURSES_ON
     machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
+    #endif
 }
 
 static void print_dword(uint32_t dword, uint32_t address) 
@@ -35,21 +39,39 @@ static void print_dword(uint32_t dword, uint32_t address)
     for(size_t shift = 0; shift <= 24; shift += 8)
         byte_buffer[shift/8] = (uint8_t)(dword & ((uint32_t)0xFF << shift) >> shift);
     
+    #ifdef NCURSES_ON
     machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
+    #endif
 }
 
-static void print_imm_reg(CPU *cpu,  Instruction *decoded_instr)
-{
-    //printw("Immediate bytes (LSB -> GSB)\n");
-    for (int i = 0; i < decoded_instr->immediate_length; i++) {
-        //printw(" %02x  ", decoded_instr->immediate[i]);
-    }
-    //printw("\n");
-    //printw("===================EXECUTE DONE======================\n");
-}
 
 //=======================================================================================================================================================
-//===================================================================REGISTER ACCESSORS=======================================================================
+//===============================================================STATUS REGISTER UPDATE=================================================================================
+
+
+FlagPolicy get_FlagPolicy(Opclass opc) 
+{
+    if (opc & FP_ARITH_GRP_MASK) return FP_ARITH_GROUP;
+    if (opc & FP_ARITH_2_GRP_MASK) return FP_ARITH_2_GROUP;
+    if (opc & FP_INC_DEC_GRP_MASK) return FP_INC_DEC_GROUP;
+    if (opc & FP_LOGIC_GRP_MASK) return FP_LOGIC_GRP;
+    if (opc & FP_SHIFT_GRP_MASK) return FP_SHIFT_GRP;
+    if (opc & FP_ROTATE_GRP_MASK) return FP_ROTATE_GRP;
+}
+
+static int update_status_register(CPU *cpu, Opclass opc, uint16_t possible_flags) 
+{
+    uint16_t borrow_bit = (possible_flags >> 9) & 0x1;
+    possible_flags &= ((1 << 9) - 1); // truncate
+    possible_flags = (opc & OPC_USES_BORROW_MASK) ? ((possible_flags & ~(1 << 2)) | (borrow_bit << 2) ) :
+                                                    ((opc & OPC_USES_CARRY_MASK) ? possible_flags : 
+                                                                                   possible_flags & ~(1 << 2));
+    uint16_t permissible = get_FlagPolicy(opc).write;
+    cpu->status_register &= ~permissible; 
+    cpu->status_register |= (permissible & possible_flags); 
+    return 1;
+}
+
 
 //=======================================================================================================================================================
 //===================================================================REGISTER ACCESSORS=======================================================================
@@ -125,6 +147,37 @@ static inline uint32_t get_imm(Instruction *instr)
     return ((uint32_t)instr->immediate[0] | (uint32_t)instr->immediate[1] << 8 | (uint32_t)instr->immediate[2] << 16 | (uint32_t)instr->immediate[3] << 24);
 }
 
+static inline char get_operand_size(CPU *cpu, BUS *bus, Instruction *instr)
+{
+    /*
+    If L (long mode) is set for a code segment descriptor, D must be clear. 
+    The L=1 / D=1 combination is currently meaningless / reserved. 
+    Intel documents this nearby in the same document you were looking at.
+    If L is clear, then D selects between 16 and 32-bit mode.
+     (i.e. the default operand / address size).
+    */
+    // operand size is determined by the D-bit in the Code Segment
+        // if D=0, default operand is 16 bits
+        // if D=1, default operand is 32 bits
+        // Unless there exists operand-size override prefix
+
+    // the D flag is bit 22 of the CS descriptor
+    uint64_t descriptor = get_descriptor(bus, &cpu->gdtr, get_SegmentRegister_index(&cpu->segment_registers[CS]));
+    // default bit
+    char d_bit = (descriptor >> 22) & 1;
+
+    return (instr->has_operand_size_override) ? !d_bit : d_bit;
+}
+
+static inline bool seg_bounds_check(CPU *cpu, uint32_t new_addr, SegmentRegisterType seg_type)
+{
+    bool valid = new_addr > (cpu->segment_registers[seg_type].limit + cpu->segment_registers[seg_type].base);
+    if (seg_type == CS && !valid) {
+        cpu->halt = 1;
+        return INVALID;
+    } // need to raise a #GP fault, abort execution
+    return VALID;
+}
 //=======================================================================================================================================================
 //========================================================Effective Address Calculation Helpers==========================================================
 
@@ -157,114 +210,63 @@ static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
     
 }
 
-
-
 //=======================================================================================================================================================
-//===============================================================STATUS REGISTER UPDATE=================================================================================
+//===============================================================OPERAND READERS=================================================================================
 
-
-FlagPolicy get_FlagPolicy(Opclass opc) 
+static uint32_t read_rm_op(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width)
 {
-    if (opc & FP_ARITH_GRP_MASK) return FP_ARITH_GROUP;
-    if (opc & FP_ARITH_2_GRP_MASK) return FP_ARITH_2_GROUP;
-    if (opc & FP_INC_DEC_GRP_MASK) return FP_INC_DEC_GROUP;
-    if (opc & FP_LOGIC_GRP_MASK) return FP_LOGIC_GRP;
-    if (opc & FP_SHIFT_GRP_MASK) return FP_SHIFT_GRP;
-    if (opc & FP_ROTATE_GRP_MASK) return FP_ROTATE_GRP;
+    if(decoded_instr->mod == 0x3) // register direct
+        return gpr_w_handler(cpu, decoded_instr->rm_field, width); 
+    else  // register direct
+    {
+        uint32_t mem_value;
+        bus_read(bus, &mem_value, calculate_EA(cpu, decoded_instr), width);
+        return mem_value;
+    }
 }
 
-static int update_status_register(CPU *cpu, Opclass opc, uint16_t possible_flags) 
+static void write_rm_dst(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, uint32_t result, uint32_t effective_addr)
 {
-    uint16_t borrow_bit = (possible_flags >> 9) & 0x1;
-    possible_flags &= ((1 << 9) - 1); // truncate
-    possible_flags = (opc & OPC_USES_BORROW_MASK) ? ((possible_flags & ~(1 << 2)) | (borrow_bit << 2) ) :
-                                                    ((opc & OPC_USES_CARRY_MASK) ? possible_flags : 
-                                                                                   possible_flags & ~(1 << 2));
-    //printw("Possible flags: %x\n", possible_flags);
-    uint16_t permissible = get_FlagPolicy(opc).write;
-    cpu->status_register &= ~permissible; 
-    cpu->status_register |= (permissible & possible_flags); 
-    return 1;
+    if(decoded_instr->mod == 0x3)
+        set_gpr_w_handler(cpu, decoded_instr->rm_field, width, result);
+    else
+    {
+        bus_write(bus, result, effective_addr, width);
+    }
+
 }
+
+
 
 //=======================================================================================================================================================
 //===============================================================ARITHMETIC AND LOGIC HELPERS=================================================================================
 
 static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, Opclass opclass, int cin)
 {
-    if(decoded_instr->mod == 0x3)
-    {
-        ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
-        uint32_t op1 = gpr_w_handler(cpu, decoded_instr->rm_field, width); 
-        uint32_t op2 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width);
-        ALU(/*op1 register direct*/ op1, op2, cin, width, opclass, &out);
 
+    ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
+    uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, width);
+    uint32_t op2 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width);
+    ALU(op1, op2, cin, width, opclass, &out);
 
-        if (!(opclass & OPC_THROW_RESULT_MASK))
-            set_gpr_w_handler(cpu, decoded_instr->rm_field, width, out.low);
-        update_status_register(cpu, opclass, out.flags_out);
+    if (!(opclass & OPC_THROW_RESULT_MASK))
+        write_rm_dst(bus, cpu, decoded_instr, width, out.low, (decoded_instr->mod == 0x3)  ? 0 : calculate_EA(cpu, decoded_instr));
+    update_status_register(cpu, opclass, out.flags_out);
 
-        //printw("Result is: %02x\n", out.low);                                                                        
-    }                                                                                                               
-    else                                                                                                            
-    {                                                                                                               
-        // register indirect
-        uint32_t mem_value = 0;
-        uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
-        bus_read(bus, &mem_value, effective_addr, width);
-        //printw("Effective address calculated: %08X\n", effective_addr);
-        //printw("Value at effective address: %02x\n", mem_value);
-
-        ALU_out out = { .cin = 0, .low = 0, .high = 0, .flags_out = 0 };
-
-        uint32_t op2 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width); 
-        ALU(/*op1 from mem*/mem_value, /*op2 from reg*/ op2, cin, width, opclass, &out);                                                          
-
-        if (!(opclass & OPC_THROW_RESULT_MASK)) 
-        {
-            bus_write(bus, out.low, effective_addr, width);
-            print_dword(out.low, effective_addr);                                                                       
-        }
-        update_status_register(cpu, opclass, out.flags_out);                                                        
-
-        //printw("Result is: %02x\n", out.low);                                                                       
-    }                                                                                                               
-    //printw("===================EXECUTE DONE======================\n");                                              
     return 1; 
 }
 
 static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, Opclass opclass, int cin)
 {
-    if (decoded_instr->mod == 0x3)                                                                                  
-    {                                                                                                               
-        ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };                                                        
-        uint32_t op1 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width); 
-        uint32_t op2 = gpr_w_handler(cpu, decoded_instr->rm_field, width); 
-        ALU(/*op1 register direct*/ op1, op2, cin, width, opclass, &out);
-        if (!(opclass & OPC_THROW_RESULT_MASK))
-            set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, out.low, width);
-        update_status_register(cpu, opclass, out.flags_out);
+    ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };                                                        
+    uint32_t op1 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width); 
+    uint32_t op2 =  read_rm_op(bus, cpu, decoded_instr, width);
+    ALU(op1, op2, cin, width, opclass, &out);
 
-        //printw("Result: %02x\n", out.low);
-    }                                                                                                               
-    else                                                                                                            
-    {                                                                                                               
-        uint32_t effective_addr = calculate_EA(cpu, decoded_instr);                                                 
-        uint32_t value = 0;                                                                                         
-        bus_read(bus, &value, effective_addr, width);                                                                   
+    if (!(opclass & OPC_THROW_RESULT_MASK))
+        set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width, out.low);
+    update_status_register(cpu, opclass, out.flags_out);
 
-        ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };                                                      
-
-        uint32_t op1 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width); 
-        ALU(/*op1 register dst*/ op1, /*op2 src from mem*/value, cin, width, opclass, &out);
-
-        if (!(opclass & OPC_THROW_RESULT_MASK))
-            set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width, out.low);
-        update_status_register(cpu, opclass, out.flags_out);
-
-        //printw("Result: %02x\n", out.low);                                                                           
-    }                                                                                                               
-    //printw("===================EXECUTE DONE======================\n");                                              
     return 0;                                                                                                       
 }
 
@@ -273,25 +275,21 @@ static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
 
 int execute_ADD_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADD_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADD_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADD_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_ADD, NO_CIN);
 }
 
 int execute_ADD_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADD_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_ADD, NO_CIN);
 }
 
@@ -305,25 +303,21 @@ int execute_POP_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; 
 
 int execute_OR_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING OR_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_OR, NO_CIN);
 }
 
 int execute_OR_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING OR_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_OR, NO_CIN);
 }
 
 int execute_OR_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING OR_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_OR, NO_CIN);
 }
 
 int execute_OR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING OR_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_OR, NO_CIN);
 }
 
@@ -333,7 +327,6 @@ int execute_OR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_ADC_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADC_RM8_R8======================\n");
     
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_ADC, cin);
@@ -341,21 +334,18 @@ int execute_ADC_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_ADC_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADC_RM32_R32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_ADC, cin);
 }
 
 int execute_ADC_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADC_R8_RM8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_ADC, cin);
 }
 
 int execute_ADC_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING ADC_R32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_ADC, cin);
 }
@@ -367,28 +357,24 @@ int execute_POP_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; 
 
 int execute_SBB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SBB_RM8_R8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_SBB, cin);
 }
 
 int execute_SBB_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SBB_RM32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_SBB, cin);
 }
 
 int execute_SBB_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SBB_R8_RM8======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_SBB, cin);
 }
 
 int execute_SBB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SBB_R32_RM32======================\n");
     uint32_t cin = (cpu->status_register >> 2) & 0x1;
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_SBB, cin);
 }
@@ -398,25 +384,21 @@ int execute_SBB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 //===============================================================20 - 2F=================================================================================
 int execute_AND_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING AND_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_AND, NO_CIN);
 }
 
 int execute_AND_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING AND_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_AND, NO_CIN);
 }
 
 int execute_AND_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING AND_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_AND, NO_CIN);
 }
 
 int execute_AND_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING AND_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_AND, NO_CIN);
 }
 
@@ -428,25 +410,21 @@ int execute_DAA           (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (
 
 int execute_SUB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SUB_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SUB_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SUB_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_SUB, NO_CIN);
 }
 
 int execute_SUB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING SUB_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_SUB, NO_CIN);
 }
 
@@ -456,25 +434,21 @@ int execute_SUB_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_XOR_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING XOR_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING XOR_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING XOR_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_XOR, NO_CIN);
 }
 
 int execute_XOR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING XOR_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_XOR, NO_CIN);
 }
 
@@ -484,25 +458,21 @@ int execute_XOR_EAX_IMM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { 
 
 int execute_CMP_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING CMP_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING CMP_RM32_R32======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 32, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_R8_RM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING CMP_R8_RM8======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 8, OPC_CMP, NO_CIN);
 }
 
 int execute_CMP_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING CMP_R32_RM32======================\n");
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_CMP, NO_CIN);
 }
 
@@ -530,31 +500,26 @@ static int alu_increment_register(BUS *bus, CPU *cpu, Instruction *decoded_instr
 
 int execute_INC_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING INC_EAX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_ECX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING INC_ECX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EDX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING INC_EDX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_EBX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING INC_EBX======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
 int execute_INC_ESP(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING INC_ESP======================\n");
     return alu_increment_register(bus, cpu, decoded_instr);
 }
 
@@ -775,9 +740,9 @@ int execute_IMM_GRP_EV_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   {
 
 int execute_TEST_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    //printw("===================EXECUTING TEST_RM8_R8======================\n");
     return alu_two_op_rm_r(bus, cpu, decoded_instr, 8, OPC_TEST, NO_CIN);
 }
+
 
 int execute_TEST_RM32_R32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -902,7 +867,6 @@ int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_EAX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EAX, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -911,7 +875,6 @@ int execute_MOV_ECX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_ECX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ECX, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -920,7 +883,6 @@ int execute_MOV_EDX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_EDX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EDX, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -929,7 +891,6 @@ int execute_MOV_EBX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_EBX_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EBX, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -938,7 +899,6 @@ int execute_MOV_ESP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_ESP_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ESP, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -947,7 +907,6 @@ int execute_MOV_EBP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_EBP_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EBP, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -956,7 +915,6 @@ int execute_MOV_ESI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_ESI_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, ESI, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -965,7 +923,6 @@ int execute_MOV_EDI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     //printw("===================EXECUTING MOV_EDI_IMM32======================\n");
     (void)bus;
     set_gpr_w_handler(cpu, EDI, 32, get_imm(decoded_instr));
-    print_imm_reg(cpu, decoded_instr);
     return 1;
 }
 
@@ -986,24 +943,64 @@ int execute_SHIFT_EV_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (voi
 //=======================================================================================================================================================
 //===============================================================E0 - EF=================================================================================
 
-int execute_CALL_REL32    (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_JMP_REL32     (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_INVALID0xEA   (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_JMP_REL8      (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
+
+int execute_CALL_REL32    (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+
+}
+
+/*
+Near jump—A jump to an instruction within the current code segment (the segment currently pointed to by the CS register), sometimes referred to as an intrasegment jump.
+Short jump—A near jump where the jump range is limited to –128 to +127 from the current EIP value.
+*/
+
+// Relative jumps
+// E9: Jump near, EIP = EIP + 32 bit displacement
+int execute_JMP_REL32     (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    uint32_t disp = get_disp(decoded_instr);
+    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + disp);
+    // bounds check, if wrong, rollback and raise error
+    uint32_t new_addr = address_translator(cpu, CS, gpr32(cpu, EIP) + disp);
+
+    if (new_addr > cpu->segment_registers[CS].limit + cpu->segment_registers[CS].base)
+    {
+        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - disp);
+        cpu->halt = true;
+    }
+
+    return 1;
+}
+
+// EB: Jump short, EIP = EIP + 8 bit displacement sign-extended to 32 bits
+int execute_JMP_REL8      (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    // uses displacement length from decoded_instr to handle sign extension
+    // 8-bit disp is sign-extended to 32 bits
+    uint32_t disp = get_disp(decoded_instr);
+    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + disp);
+    uint32_t new_addr = address_translator(cpu, CS, gpr32(cpu, EIP) + disp);
+
+    if (new_addr > cpu->segment_registers[CS].limit)
+    {
+        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - disp);
+        cpu->halt = true;
+    }
+
+    return 1;
+}
 
 //=======================================================================================================================================================
 //===============================================================F0 - FF=================================================================================
 
 int execute_CLC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
-    //printw("===================EXECUTING CLC======================\n");
     cpu->status_register &= ~(CF);
     return 1;
 }
 
 int execute_STC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 {
-    //printw("===================EXECUTING STC======================\n");
     cpu->status_register |= CF;
     return 1;
 }
@@ -1011,12 +1008,55 @@ int execute_STC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 
 int execute_HLT (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
+    printf("Halt\n");
     (void)bus;
     (void)decoded_instr;
     // raise HLT flag
-    //printw("===================EXECUTING HALT======================\n");
     cpu->halt = 1;
-    //printw("\nProgram HALTED\n");
     return 1;
 }
 
+/*
+
+// operand size is determined by the D-bit in the Code Segment
+    // if D=0, default operand is 16 bits
+    // if D=1, default operand is 32 bits
+    // Unless there exists operand-size override prefix
+Group 5, determined by bits 5-3 of the ModR/M byte:
+FF /0: INC rm16, rm32
+FF /1: DEC rm16, rm32
+FF /2: CALL rm16, rm32 (near, absolute indirect)
+FF /3: CALL m16:16, m16:32 (far, absolute indirect)
+FF /4: JMP rm16, rm32 (near, absolute indirect) 
+FF /5: JMP m16:16, m16:32 (far, absolute indirect)
+FF /6: PUSH rm16, rm32
+*/
+
+int execute_GRP5(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    switch(decoded_instr->reg_or_opcode)
+    {
+        uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, 32);
+        ALU_out out;
+        case 0:
+            ALU(/*op1, base*/op1, 
+                /*op2, none*/0, 
+                            NO_CIN, 32, OPC_INC, &out);
+            write_rm_dst(bus, cpu, decoded_instr, 32, op1, (decoded_instr->mod == 0x3) ? 0 : calculate_EA(cpu, decoded_instr));
+        break;
+        case 1:
+            ALU(/*op1, base*/op1, 
+                /*op2, none*/0, 
+                            NO_CIN, 32, OPC_DEC, &out);
+            write_rm_dst(bus, cpu, decoded_instr, 32, op1, (decoded_instr->mod == 0x3) ? 0 : calculate_EA(cpu, decoded_instr));
+        break;
+        case 4:
+            // jump near, absolute indirect: A jump to an instruction within the current code segment 
+                                            // (the segment currently pointed to by the CS register), 
+                                            // sometimes referred to as an intrasegment jump.
+            uint32_t op = read_rm_op(bus, cpu, decoded_instr, 32);
+            if ((seg_bounds_check(cpu, op, CS)) == VALID)
+                (get_operand_size) ? set_gpr32(cpu, EIP, op) : set_gpr16(cpu, EIP, op & 0xFFFF);
+        break;
+    }
+}

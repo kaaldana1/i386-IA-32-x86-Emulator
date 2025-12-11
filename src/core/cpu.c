@@ -1,39 +1,9 @@
 #include "core/cpu.h"
-#include "core/address_translation_unit.h"
+#include "core/int_utils.h"
 #include "machine/display_api.h"
+
 #define MAX_INSTR_LENGTH 16
 
-
-static inline uint16_t get_SegmentRegister_index(const SegmentRegister *reg) 
-{
-    return reg->selector >> 3;
-}
-
-static inline uint64_t get_descriptor(BUS *bus, GDTR *gdtr, uint16_t index) 
-{
-    if ((index * GDT_DESC_SIZE) + 7 > gdtr->size) { return 0; }
-    uint32_t low, high;
-    bus_read(bus, &low, gdtr->base + index * GDT_DESC_SIZE, 32);
-    bus_read(bus, &high, gdtr->base + (index * GDT_DESC_SIZE) + 4, 32);
-    return ((uint64_t)low) | ((uint64_t)high << 32);
-}
-
-static inline uint32_t get_base(uint64_t descriptor)
-{
-    return ( (((uint32_t) descriptor >> 16) & 0xFFFFFFu) | // captures base_low and base_mid (byte 2-4)
-        ((uint32_t)(descriptor >> 56) << 24)); // captures high (byte 7)
-}
-
-static inline uint32_t get_limit(uint64_t descriptor) 
-{
-    return ( ((uint32_t)descriptor & 0xFFFF) | 
-    (((uint32_t)(descriptor >> 48) & 0x0F) << 16));
-}
-
-static inline uint16_t get_flag(uint64_t descriptor) 
-{
-    return( (uint16_t)(descriptor >> 40) & 0xF0FF);
-}
 
 int set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
@@ -124,12 +94,16 @@ int interpreter(CPU *cpu, BUS *bus)
 
         cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
+        #ifdef NCURSES_ON
         machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
+        #endif
 
         (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+        
+        #ifdef NCURSES_ON
         machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
-
         machine_state.ui_callbacks.ui_flush_ui();
+        #endif
     }
     return 1;
 }

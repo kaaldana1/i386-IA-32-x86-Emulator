@@ -1,0 +1,40 @@
+; mov eax
+B8 00 00 00 00
+; sets EAX = 0
+
+;SHORT JUMP forward + 2
+EB 02
+; skips over next MOV instruction
+
+; (skipped instruction) 
+B8 FF FF FF FF
+; this should NOT execute
+
+; SHORT JUMP backward minus 4
+EB FA
+; loops back near start — just to test backward displacement
+
+; NEAR JUMP (REL32) forward 
+E9 04 00 00 00
+; skips 4 bytes (next MOV)
+
+; skipped
+B8 11 11 11 11
+
+;  GROUP5 JMP rm32 
+FF E0
+; opcode FF /4 → JMP EAX (indirect)
+; this should jump to address currently stored in EAX
+
+; HALT 
+F4
+; stops emulator cleanly
+
+B8 00 00 00 00
+EB 02
+B8 FF FF FF FF
+EB FA
+E9 04 00 00 00
+B8 11 11 11 11
+FF E0
+F4
