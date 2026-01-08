@@ -9,7 +9,12 @@
 
 #include "hardware_sim/bus.h"
 
-typedef struct Program Program;
+
+typedef struct {
+    uint8_t *arr;
+    size_t size;
+    size_t capacity;
+} Program;
 //hola
 Program *create_program(void);
 int load_program(BUS *bus, Program *p, uint32_t code_addr);

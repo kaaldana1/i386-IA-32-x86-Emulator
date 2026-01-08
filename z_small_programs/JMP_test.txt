@@ -1,3 +1,10 @@
+B8 18 00 00 00
+EB 05
+B8 FF FF FF FF
+E9 05 00 00 00
+B8 11 11 11 11
+FF E0
+F4
 ; mov eax
 B8 00 00 00 00
 ; sets EAX = 0

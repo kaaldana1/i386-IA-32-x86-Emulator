@@ -1,6 +1,6 @@
-#define DEBUG
+#include <locale.h>
 #include <ncurses.h>
-#include "machine/display.h"
+#include "ui/display.h"
 #include "machine/boot.h"
 
 
@@ -10,6 +10,7 @@ int main(void)
     int chr;
 
     #ifdef NCURSES_ON
+    setlocale(LC_ALL, "");
     while ((chr = getch()) != 'q') 
     {
         init_ui();

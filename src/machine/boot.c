@@ -1,7 +1,7 @@
 #include "machine/boot.h"
-#include "machine/display.h"
+#include "hardware_sim/memmap.h"
+#include "ui/display.h"
 
-#define MAX_DEVICES 2 // for just console and ram
 
 
 typedef struct 
@@ -11,7 +11,7 @@ typedef struct
 } Machine;
 
 static Machine *boot_sequence(Program *p);
-static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c);
+static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c, VGADev *v);
 
 int start(Program *p) 
 {
@@ -25,6 +25,7 @@ static Machine *boot_sequence(Program *p)
     //TODO: Define addresses here, parameterize the addresses. Dont let functions hide them
     RAMDev *ram = init_ram(); // 16 kib array
     CONSOLEDev *c = init_console();
+    VGADev *v = init_vga();
     // BUS has an address table, an entry in the table expects:
         /*
             uint32_t base;
@@ -38,7 +39,7 @@ static Machine *boot_sequence(Program *p)
     // Register devices into the bus:
         // Ram starts at 0x0, size is 16kb
         // Console port is at address 0x4000
-    create_addr_space(ram, bus, c); 
+    create_addr_space(ram, bus, c, v); 
     
     // Creates GDT at GDT base
         /* Descriptors:
@@ -71,10 +72,11 @@ static Machine *boot_sequence(Program *p)
     return m;
 }
 
-static int create_addr_space(RAMDev *ram,  BUS *bus, CONSOLEDev *c) 
+static int create_addr_space(RAMDev *ram,  BUS *bus, CONSOLEDev *c, VGADev *v) 
 {
-    bus_register(bus, 0x0000, 0x3FFF, ram_read, ram_write, ram);
-    bus_register(bus, 0x4000, 0x257,  console_read_stub, console_write, c); 
+    bus_register(bus, RAM_BASE_ADDR, RAM_SIZE, ram_read, ram_write, ram);
+    bus_register(bus, CONSOLE_BASE_ADDR, CONSOLE_SIZE,  console_read_stub, console_write, c); 
+    bus_register(bus, VGA_BASE_ADDR, VGA_SIZE, vram_read_stub, vram_write, v);
     return 1;
 }
 

@@ -1,6 +1,6 @@
 #include "core/cpu.h"
 #include "core/int_utils.h"
-#include "machine/display_api.h"
+#include "ui/display_api.h"
 
 #define MAX_INSTR_LENGTH 16
 
@@ -102,6 +102,7 @@ int interpreter(CPU *cpu, BUS *bus)
         
         #ifdef NCURSES_ON
         machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
+        machine_state.ui_callbacks.ui_reset_stack_after_execute();
         machine_state.ui_callbacks.ui_flush_ui();
         #endif
     }

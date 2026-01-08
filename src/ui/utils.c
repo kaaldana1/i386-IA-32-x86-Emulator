@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include <string.h>
-#include "machine/utils.h"
+#include "ui/utils.h"
 
 #define MSB1 0
 #define MSB2 1

@@ -5,7 +5,7 @@
 #include "ids/opcode_list.h"
 #include "core/executor.h"
 #include "core/int_utils.h"
-#include "machine/display_api.h"
+#include "ui/display_api.h"
 
 #define NO_CIN 0
 #define CIN 1
@@ -131,21 +131,50 @@ static inline void set_gpr_w_handler(CPU *cpu, GeneralPurposeRegisterType id, si
 //=======================================================================================================================================================
 //===================================================================General Utils=======================================================================
 
-static inline uint32_t get_disp(Instruction *instr)
+// decoder stores immediates and displacements into array. casting the byte array into a dword is cpu-dependent... we want to ensure little-endianness
+static inline uint32_t little_endian_to_uint32(uint8_t *bytes, size_t length)
 {
-    switch (instr->displacement_length)
+    switch (length)
     {
-        case 1: return (int32_t)instr->displacement[0];
-        case 2: return (int32_t)((int16_t)(instr->displacement[0] | instr->displacement[1] << 8));
-        case 3: return (int32_t)((uint32_t)instr->displacement[0] | (uint32_t)instr->displacement[1] << 8 | (uint32_t)instr->displacement[2] << 16 | (uint32_t)instr->displacement[3] << 24 );
+        case 1: return (uint32_t)bytes[0];
+        case 2: return (uint32_t)((uint16_t)(bytes[0] | bytes[1] << 8));
+        case 4: return (uint32_t)((uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24 );
         default: return 0;
     }
 }
 
-static inline uint32_t get_imm(Instruction *instr)
+static inline int32_t little_endian_to_int32(uint8_t *bytes, size_t length)
 {
-    return ((uint32_t)instr->immediate[0] | (uint32_t)instr->immediate[1] << 8 | (uint32_t)instr->immediate[2] << 16 | (uint32_t)instr->immediate[3] << 24);
+    switch (length)
+    {
+        case 1: return (int32_t)(int8_t)bytes[0];
+        case 2: return (int32_t)((uint16_t)(bytes[0] | bytes[1] << 8));
+        case 4: return (int32_t)((uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 | (uint32_t)bytes[3] << 24 );
+        default: return 0;
+    }
 }
+
+static inline int32_t get_disp(Instruction *instr)
+{
+    return little_endian_to_int32(instr->displacement, instr->displacement_length);
+}
+ 
+// only for special cases where displacement becomes the absolute address (i.e. mod=00 and rm=101 with no SIB)
+static inline uint32_t get_unsigned_disp(Instruction *instr)
+{
+    return little_endian_to_uint32(instr->displacement, instr->displacement_length);
+}
+
+static inline uint32_t get_unsigned_imm(Instruction *instr)
+{
+    return little_endian_to_uint32(instr->immediate, instr->immediate_length);
+}
+
+static inline int32_t get_signed_imm(Instruction *instr)
+{
+    return little_endian_to_int32(instr->immediate, instr->immediate_length);
+}
+
 
 static inline char get_operand_size(CPU *cpu, BUS *bus, Instruction *instr)
 {
@@ -171,7 +200,7 @@ static inline char get_operand_size(CPU *cpu, BUS *bus, Instruction *instr)
 
 static inline bool seg_bounds_check(CPU *cpu, uint32_t new_addr, SegmentRegisterType seg_type)
 {
-    bool valid = new_addr > (cpu->segment_registers[seg_type].limit + cpu->segment_registers[seg_type].base);
+    bool valid = new_addr < (cpu->segment_registers[seg_type].limit + cpu->segment_registers[seg_type].base);
     if (seg_type == CS && !valid) {
         cpu->halt = 1;
         return INVALID;
@@ -187,8 +216,12 @@ static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
     if (instr->mod == 0x3) 
         return 0; // register direct is used
     if (instr->sib_length == 0 && instr->mod == 0x00 && instr->rm_field == 0x05) 
-        return get_disp(instr); // disp32 only with no SIB
-
+    {
+        if (instr->displacement_length != 4)
+            return 0; // the disp needs to be an absoluate address
+        return get_unsigned_disp(instr); // disp32 only with no SIB. In this case, displacement is an address, not an offset
+    }
+        
     uint32_t effective_addr =  0;
     uint32_t base = gpr32(cpu, instr->rm_field);
 
@@ -700,14 +733,14 @@ int execute_POPA(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 static int push_imm32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 4);
-    bus_write(bus, get_imm(decoded_instr), address_translator(cpu, SS, ESP), 32);
+    bus_write(bus, get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 32);
     return 1;
 }
 
 static int push_imm8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 1);
-    bus_write(bus, 0xFF & get_imm(decoded_instr), address_translator(cpu, SS, ESP), 8);
+    bus_write(bus, 0xFF & get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 8);
     return 1;
 }
 
@@ -730,6 +763,195 @@ int execute_BOUND_GV_MA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { return
 //=======================================================================================================================================================
 //===============================================================70 - 7F=================================================================================
 
+int jmp_rel32(CPU *cpu, Instruction *decoded_instr) 
+{
+    int32_t imm = get_signed_imm(decoded_instr);
+    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + imm);
+    // bounds check, if wrong, rollback and raise error
+    uint32_t new_addr = address_translator(cpu, CS, EIP);
+
+    if (seg_bounds_check(cpu, new_addr, CS) != VALID)
+    {
+        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - imm);
+        cpu->halt = true;
+    }
+    return 1;
+}
+
+int jmp_rel8(CPU *cpu, Instruction *decoded_instr) 
+{
+    // uses imm length from decoded_instr to handle sign extension
+    // 8-bit imm is sign-extended to 32 bits
+    int32_t imm = get_signed_imm(decoded_instr);
+    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + imm);
+    uint32_t new_addr = address_translator(cpu, CS, EIP);
+
+    if (seg_bounds_check(cpu, new_addr, CS) != VALID)
+    {
+        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - imm);
+        cpu->halt = true;
+    }
+    return 1;
+}
+
+// 70 cb JO rel8 7+m,3 Jump short if overflow (OF=1)
+int execute_JO_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool overflow = (cpu->status_register & OF) != 0;
+    if (overflow)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 71 cb JNO rel8 7+m,3 Jump short if not overflow (OF=0)
+int execute_JNO_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool overflow = (cpu->status_register & OF) != 0;
+    if (!overflow)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 72 cb JB rel8 7+m,3 Jump short if below (CF=1)
+// 72 cb JC rel8 7+m,3 Jump short if carry (CF=1)
+// 72 cb JNAE rel8 7+m,3 Jump short if not above or equal (CF=1)
+int execute_JB_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool carry = (cpu->status_register & CF) != 0;
+    if (carry)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 73 cb JNB rel8 7+m,3 Jump short if not below (CF=0)
+// 73 cb JNC rel8 7+m,3 Jump short if not carry (CF=0)
+// 73 cb JAE rel8 7+m,3 Jump short if above or equal (CF=0)
+int execute_JAE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool carry = (cpu->status_register & CF) != 0;
+    if (!carry)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 74 cb JE rel8 7+m,3 Jump short if equal (ZF=1)
+// 74 cb JZ rel8 7+m,3 Jump short if 0 (ZF=1)
+// 74 cb JZ rel8 7+m,3 Jump short if zero (ZF = 1)
+int execute_JE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool zero = (cpu->status_register & ZF) != 0;
+    if (zero)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 75 cb JNE rel8 7+m,3 Jump short if not equal (ZF=0)
+// 75 cb JNZ rel8 7+m,3 Jump short if not zero (ZF=0)
+int execute_JNE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool zero = (cpu->status_register & ZF) != 0;
+    if (!zero)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 76 cb JBE rel8 7+m,3 Jump short if below or (CF=1 or ZF=1)
+// 76 cb JNA rel8 7+m,3 Jump short if not above (CF=1 ZF=1)
+int execute_JBE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool carry = (cpu->status_register & CF) != 0;
+    bool zero = (cpu->status_register & ZF) != 0;
+    if (carry || zero)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 77 cb JNBE rel8 7+m,3 Jump short if not below or equal (CF=0 and ZF=0)
+// 77 cb JA rel8 7+m,3 Jump short if above (CF=0 and ZF=0)
+int execute_JA_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool carry = (cpu->status_register & CF) != 0;
+    bool zero = (cpu->status_register & ZF) != 0;
+    if (!carry && !zero)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 78 cb JS rel8 7+m,3 Jump short if sign (SF=1)
+int execute_JS_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool sign = (cpu->status_register & SF) != 0;
+    if (sign)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+// 79 cb JNS rel8 7+m,3 Jump short if not sign (SF=0)
+int execute_JNS_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool sign = (cpu->status_register & SF) != 0;
+    if (!sign)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 7A cb JPE rel8 7+m,3 Jump short if parity even (PF=1)
+// 7A cb JP rel8 7+m,3 Jump short if parity (PF=1)
+int execute_JP_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool parity = (cpu->status_register & PF) != 0;
+    if (parity)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;   
+}
+
+// 7B cb JPO rel8 7+m,3 Jump short if parity odd (PF=0)
+// 7B cb JNP rel8 7+m,3 Jump short if not parity (PF=0)
+int execute_JNP_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool parity = (cpu->status_register & PF) != 0;
+    if (!parity)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 7C cb JL rel8 7+m,3 Jump short if less (SF≠OF)
+// 7C cb JNGE rel8 7+m,3 Jump short if not greater or equal (SF≠OF)
+int execute_JL_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool is_less = (cpu->status_register & SF) != (cpu->status_register & OF);
+    if (is_less)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 7D cb JGE rel8 7+m,3 Jump short if greater or equal (SF=OF)
+// 7D cb JNL rel8 7+m,3 Jump short if not less (SF=OF)
+int execute_JGE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool is_greater_equal = (cpu->status_register & SF) == (cpu->status_register & OF);
+    if (is_greater_equal)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+
+// 7E cb JLE rel8 7+m,3 Jump short if less or equal (ZF=1 and SF≠OF)
+// 7E cb JNG rel8 7+m,3 Jump short if not greater (ZF=1 or SF≠OF)
+int execute_JLE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{
+    bool less_or_equal = ((cpu->status_register & ZF) != 0) && ((cpu->status_register & SF) != (cpu->status_register & OF));
+    if (less_or_equal)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+}
+// 7F cb JG rel8 7+m,3 Jump short if greater (ZF=0 and SF=OF)
+// 7F cb JNLE rel8 7+m,3 Jump short if not less or equal (ZF=0 and SF=OF)
+int execute_JG_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    bool greater = ((cpu->status_register & ZF) == 0) && ((cpu->status_register & SF) == (cpu->status_register & OF));
+    if (greater)
+        return jmp_rel8(cpu, decoded_instr);
+    return 0;
+} 
 
 //=======================================================================================================================================================
 //===============================================================80 - 8F=================================================================================
@@ -866,7 +1088,7 @@ int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_EAX_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, EAX, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, EAX, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -874,7 +1096,7 @@ int execute_MOV_ECX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_ECX_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, ECX, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, ECX, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -882,7 +1104,7 @@ int execute_MOV_EDX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_EDX_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, EDX, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, EDX, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -890,7 +1112,7 @@ int execute_MOV_EBX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_EBX_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, EBX, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, EBX, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -898,7 +1120,7 @@ int execute_MOV_ESP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_ESP_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, ESP, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, ESP, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -906,7 +1128,7 @@ int execute_MOV_EBP_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_EBP_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, EBP, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, EBP, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -914,7 +1136,7 @@ int execute_MOV_ESI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_ESI_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, ESI, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, ESI, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -922,7 +1144,7 @@ int execute_MOV_EDI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     //printw("===================EXECUTING MOV_EDI_IMM32======================\n");
     (void)bus;
-    set_gpr_w_handler(cpu, EDI, 32, get_imm(decoded_instr));
+    set_gpr_w_handler(cpu, EDI, 32, get_unsigned_imm(decoded_instr));
     return 1;
 }
 
@@ -930,7 +1152,36 @@ int execute_MOV_EDI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 //=======================================================================================================================================================
 //===============================================================C0 - CF=================================================================================
 
-int execute_RET (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
+int execute_GRP2_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_GRP2_EV_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+
+// C2: return near, pop imm16 bytes of parameters
+int execute_RET_NEAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+// C3: return (near) to caller
+// take 32-bit return address from the top of the stack as SS:ESP
+// load that value into EIP
+// advance ESP by the size of pointer
+int execute_RET_NEAR(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
+{  
+    return pop_gpr(bus, cpu, decoded_instr, EIP);
+}
+
+int execute_LES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_LDS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_MOV_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_MOV_EV_IV(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_ENTER(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_LEAVE(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+
+// CA
+int execute_RET_FAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+// CB return (far) to caller
+int execute_RET_FAR(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+
+int execute_INT3(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_INT_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_INTO(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_IRET(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
 
 //=======================================================================================================================================================
 //===============================================================D0 - DF=================================================================================
@@ -943,10 +1194,13 @@ int execute_SHIFT_EV_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (voi
 //=======================================================================================================================================================
 //===============================================================E0 - EF=================================================================================
 
-
+// push the address of instruction following CALL onto the stack, then 
+// jump to the address at EIP + signed 32-bit displacement
 int execute_CALL_REL32    (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-
+    // the EIP before executing instructions already point to the next instruction
+    push_gpr(bus, cpu, decoded_instr, EIP);
+    return jmp_rel32(cpu, decoded_instr);
 }
 
 /*
@@ -958,36 +1212,13 @@ Short jump—A near jump where the jump range is limited to –128 to +127 from 
 // E9: Jump near, EIP = EIP + 32 bit displacement
 int execute_JMP_REL32     (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    uint32_t disp = get_disp(decoded_instr);
-    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + disp);
-    // bounds check, if wrong, rollback and raise error
-    uint32_t new_addr = address_translator(cpu, CS, gpr32(cpu, EIP) + disp);
-
-    if (new_addr > cpu->segment_registers[CS].limit + cpu->segment_registers[CS].base)
-    {
-        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - disp);
-        cpu->halt = true;
-    }
-
-    return 1;
+    return jmp_rel32(cpu, decoded_instr);
 }
 
 // EB: Jump short, EIP = EIP + 8 bit displacement sign-extended to 32 bits
 int execute_JMP_REL8      (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    // uses displacement length from decoded_instr to handle sign extension
-    // 8-bit disp is sign-extended to 32 bits
-    uint32_t disp = get_disp(decoded_instr);
-    set_gpr32(cpu, EIP, gpr32(cpu, EIP) + disp);
-    uint32_t new_addr = address_translator(cpu, CS, gpr32(cpu, EIP) + disp);
-
-    if (new_addr > cpu->segment_registers[CS].limit)
-    {
-        set_gpr32(cpu, EIP, gpr32(cpu, EIP) - disp);
-        cpu->halt = true;
-    }
-
-    return 1;
+    return jmp_rel8(cpu, decoded_instr);
 }
 
 //=======================================================================================================================================================
@@ -1008,7 +1239,6 @@ int execute_STC (BUS *bus, CPU *cpu, Instruction *decoded_instr) //F9
 
 int execute_HLT (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
-    printf("Halt\n");
     (void)bus;
     (void)decoded_instr;
     // raise HLT flag
@@ -1032,12 +1262,27 @@ FF /5: JMP m16:16, m16:32 (far, absolute indirect)
 FF /6: PUSH rm16, rm32
 */
 
+//CALL (Call Procedure) activates an out-of-line procedure, saving on the
+//stack the address of the instruction following the CALL for later use by a
+//RET (Return) instruction. CALL places the current value of EIP on the stack.
+//The RET instruction in the called procedure uses this address to transfer
+//control back to the calling program.
+//CALL instructions, like JMP instructions have relative, direct, and
+//indirect versions.
+//Indirect CALL instructions specify an absolute address in one of these
+//ways:
+// 1. The program can CALL a location specified by a general register (any
+// of EAX, EDX, ECX, EBX, EBP, ESI, or EDI). The processor moves this
+// 32-bit value into EIP.
+// 2. The processor can obtain the destination address from a memory
+// operand specified in the instruction.
+
 int execute_GRP5(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
+    uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, 32);
+    ALU_out out;
     switch(decoded_instr->reg_or_opcode)
     {
-        uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, 32);
-        ALU_out out;
         case 0:
             ALU(/*op1, base*/op1, 
                 /*op2, none*/0, 
@@ -1050,13 +1295,25 @@ int execute_GRP5(BUS *bus, CPU *cpu, Instruction *decoded_instr)
                             NO_CIN, 32, OPC_DEC, &out);
             write_rm_dst(bus, cpu, decoded_instr, 32, op1, (decoded_instr->mod == 0x3) ? 0 : calculate_EA(cpu, decoded_instr));
         break;
+        case 2:
+            // push the address of instruction following CALL onto the stack, 
+            // THEN jump to the address in rm32
+            uint32_t callback_offset = read_rm_op(bus, cpu, decoded_instr, 32);
+            push_gpr(bus, cpu, decoded_instr, EIP);
+            set_gpr32(cpu, EIP, callback_offset);
+        break;
         case 4:
+        {
             // jump near, absolute indirect: A jump to an instruction within the current code segment 
                                             // (the segment currently pointed to by the CS register), 
                                             // sometimes referred to as an intrasegment jump.
-            uint32_t op = read_rm_op(bus, cpu, decoded_instr, 32);
-            if ((seg_bounds_check(cpu, op, CS)) == VALID)
-                (get_operand_size) ? set_gpr32(cpu, EIP, op) : set_gpr16(cpu, EIP, op & 0xFFFF);
-        break;
+            // relatve jumps are EIP = EIP_after  + sign-extended displacement
+            // indirect jumps are EIP = operand_val
+            uint32_t target_offset =  read_rm_op(bus, cpu, decoded_instr, 32);
+            uint32_t new_addr = cpu->segment_registers[CS].base + target_offset;
+            if ((seg_bounds_check(cpu, new_addr, CS)) == VALID)
+                (get_operand_size(cpu, bus, decoded_instr)) ? set_gpr32(cpu, EIP, target_offset) : set_gpr16(cpu, EIP, target_offset & 0xFFFF);
+            break;
+        }
     }
 }

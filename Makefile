@@ -21,9 +21,9 @@ endif
 # --- Flags (GCC/Clang) ---
 CSTD     ?= -std=c11
 CPPFLAGS ?= -Iinclude
-CFLAGS   ?= $(CSTD) -Wall -Wextra -Wpedantic -g -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline
+CFLAGS   ?= $(CSTD) -Wall -Wextra -Wpedantic -g -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -DNCURSES_ON
 LDFLAGS  ?=
-LDLIBS   ?= -lncurses
+LDLIBS   ?= -lncursesw
 
 # --- Paths & target ---
 SRC_DIR   := src
@@ -37,6 +37,8 @@ VPATH := \
   $(SRC_DIR)/core/structs:\
   $(SRC_DIR)/core/internal:\
   $(SRC_DIR)/hardware_sim:\
+  $(SRC_DIR)/ui:\
+  $(SRC_DIR)/utils:\
   $(SRC_DIR)/machine:\
   $(SRC_DIR)/tables
 
@@ -46,6 +48,8 @@ SRCS := \
   $(wildcard $(SRC_DIR)/core/structs/*.c) \
   $(wildcard $(SRC_DIR)/hardware_sim/*.c) \
   $(wildcard $(SRC_DIR)/machine/*.c) \
+  $(wildcard $(SRC_DIR)/ui/*.c) \
+  $(wildcard $(SRC_DIR)/utils/*.c) \
   $(wildcard $(SRC_DIR)/tables/*.c)
 
 OBJS := $(addprefix $(BUILD_DIR)/,$(notdir $(SRCS:.c=.o)))

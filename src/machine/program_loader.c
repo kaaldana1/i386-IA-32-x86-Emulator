@@ -1,10 +1,6 @@
-
+#include "utils/utils.h"
+#include "ui/display_api.h"
 #include "machine/program_loader.h"
-
-struct Program {
-    uint8_t *program;
-    size_t program_length;
-};
 
 Program *create_program(void)
 {
@@ -12,16 +8,23 @@ Program *create_program(void)
     return p;
 }
 
-static int parse_file(Program *p)
+static FILE *get_file()
 {
     FILE *fptr = fopen("src/machine/hex_code.txt", "rb");
     if (fptr == NULL) { 
-        return 0; 
+        return NULL; 
     }
+    return fptr;
+}
+
+
+static int parse_file(Program *program)
+{
+    FILE *fptr = get_file();
 
     char buff[200];
-    uint8_t *tmp = (uint8_t *)malloc(sizeof(buff));
-    if (tmp == NULL) { exit(1); }
+
+    uint8Buffer tmp = {0};
 
     int i, each;
     size_t bytes = 0;
@@ -32,61 +35,63 @@ static int parse_file(Program *p)
         i = 0;
         while (sscanf((buff + i), " %x%n", &each, &offset) == 1)
         {
-            tmp[bytes++] = (uint8_t)each;
+            DA_APPEND(tmp, (uint8_t)each);
+            bytes++;
             i += offset;
         }
     }
     fclose(fptr);
 
-    p->program = (uint8_t *)malloc(bytes);
-    if (p->program == NULL) { exit(1); }
+    program->arr = (uint8_t *)malloc(bytes);
+    if (program->arr == NULL) { exit(1); }
 
-    memcpy(p->program, tmp, bytes);
-    p->program_length = bytes;
+    memcpy(program->arr, tmp.arr, bytes);
+    program->size = bytes;
+    machine_state.ui_callbacks.ui_set_program_pointer(program);
 
-    free(tmp);
+    free(tmp.arr);
     return 1;
 }
 
-void print_contents(Program *p)
+void print_contents(Program *program)
 {
-    if (p->program == NULL)
+    if (program->arr == NULL)
     {
         //printw("Invalid");
         exit(1);
     }
 
-    for (size_t i = 0; i < p->program_length; i++)
+    for (size_t i = 0; i < program->size; i++)
     {
-        //printw("%02x ", p->program[i]);
+        //printw("%02x ", program->arr[i]);
     }
-    //printw("\nProgram size: %zu", p->program_length);
+    //printw("\nProgram size: %zu", program->arr_length);
 }
 
-static inline uint32_t create_dword(Program *p, size_t offset) 
+static inline uint32_t create_dword(Program *program, size_t offset) 
 {
-    return ( ((uint32_t)p->program[offset]) | ((uint32_t)p->program[offset + 1]) << 8 | ((uint32_t)p->program[offset + 2]) << 16 | ((uint32_t)p->program[offset + 3]) << 24 );
+    return ( ((uint32_t)program->arr[offset]) | ((uint32_t)program->arr[offset + 1]) << 8 | ((uint32_t)program->arr[offset + 2]) << 16 | ((uint32_t)program->arr[offset + 3]) << 24 );
 }
 
-int load_program(BUS *bus, Program *p, uint32_t code_addr) 
+int load_program(BUS *bus, Program *program, uint32_t code_addr) 
 {
-    parse_file(p);
+    parse_file(program);
     size_t offset = 0;
-    while (offset + 4 < p->program_length) 
+    while (offset + 4 < program->size) 
     {
-        bus_write(bus, create_dword(p, offset), code_addr + offset, 32);
+        bus_write(bus, create_dword(program, offset), code_addr + offset, 32);
         offset += 4;
     }
 
-    if (offset < p->program_length) 
+    if (offset < program->size) 
     {
         uint32_t remainder_dword = 0; 
         uint32_t final_addr = code_addr + offset;
         int remaining_bytes;
         int shift = 0;
-        while (offset < p->program_length) 
+        while (offset < program->size) 
         {
-            remainder_dword |= ((uint32_t)p->program[offset++]) << shift;
+            remainder_dword |= ((uint32_t)program->arr[offset++]) << shift;
             shift += 8;
         }
         bus_write(bus, remainder_dword, final_addr, 32); 
