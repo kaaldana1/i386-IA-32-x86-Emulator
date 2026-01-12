@@ -11,6 +11,7 @@
 #include "hardware_sim/devices_internal.h"
 #include "ids/str_opcode_list.h"
 #include "machine/program_loader.h"
+#include "ids/register_ids.h"
 
 
 typedef struct 
@@ -29,6 +30,7 @@ typedef enum
     WINDOW_INSTRUCTION,
     WINDOW_PROGRAM,
     WINDOW_SCREEN,
+    WINDOW_KEYBOARD,
     WINDOW_COUNT
 } WindowType;
 
@@ -40,6 +42,7 @@ const WindowLayout window_layouts[WINDOW_COUNT] =
     [WINDOW_REGISTERS] = {28, 67, 0, 35},
     [WINDOW_MEMORY] = {28, 75, 0, 103},
     [WINDOW_SCREEN] = {24, 67, 28, 35},
+    [WINDOW_KEYBOARD] = {4, 10, 28, 102}
 };
 
 typedef struct 
@@ -96,7 +99,20 @@ typedef enum
     SEGMENT_FIELD_X_POS,
     STATUS_FIELD_X_POS,
     HEADER_FIELDS_COUNT
-} HEADER_FIELDS_X_POS;
+} REGISTER_HEADER_FIELDS;
+
+typedef enum
+{
+    CYAN_BLACK = 1,
+    MAGENTA_BLACK,
+    YELLOW_BLACK,
+    GREEN_BLACK,
+    RED_BLACK, 
+    WHITE_BLACK,
+    BLUE_BLACK,
+    BLACK_WHITE,
+    GREEN_WHITE
+} MY_COLOR_PAIRS;
 
 static void print_word_binary(int win_num, int y_offset, int x_offset, char *print_buff);
 static void print_byte_binary(int win_num, int y_offset, int x_offset, char *print_buff);
@@ -120,6 +136,8 @@ static void update_program_prev();
 static void draw_partition_line(WINDOW *win, int x, int height);
 static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int cell_w, int cell_h, const char *title);
 void sleep_ms(long ms);
+static void update_keyboard_window();
+static setup_keyboard_window();
 
 typedef struct 
 {
@@ -127,30 +145,37 @@ typedef struct
 
     CPU cpu;
     Instruction decoded_instr;
-    VGADev *vga;
+
     uint8_t memory[4]; // legacy
     uint8_t *ram;
     uint32_t mem_address;
+
     Program *program;
-    int last_byte_index_printed;
-    int last_byte_index_decoded;
-    int program_cursor;
-    int tmp_instr_counter;
+    uint32_t last_byte_index_printed;
+    uint32_t last_byte_index_decoded;
+    uint32_t program_cursor;
+    int tmp_instr_counter; // limit vga updates
     int instr_counter;
+
+    VGADev *vga;
     uint8_t *preview_matrix;
     int pm_rows;
     int pm_cols;
+
+    KeyboardDev *keyboard;
+    uint8_t keyboard_input;
 
     bool altered_cpu;
     bool altered_memory;
     bool altered_instruction;
     bool altered_stack;
     bool altered_vram;
+    bool altered_keyboard;
 } UI_State;
 
 static UI_State ui_state = {.windows = {NULL}, 
                             .cpu = {0}, .memory = {0}, 
-                            .ram = NULL,
+                            .ram = NULL, .keyboard = NULL,
                             .decoded_instr = {0}, 
                             .program = NULL,
                             .last_byte_index_decoded = 0,
@@ -195,6 +220,11 @@ void cb_copy_mem_after_execute(const uint8_t* mem, uint32_t address)
     ui_state.altered_memory = true;
 }
 
+void cb_copy_keyboard_input(uint8_t key)
+{
+    ui_state.keyboard_input = key;
+}
+
 void cb_set_display_ram_pointer(RAMDev *ram) 
 {
     ui_state.ram = ram->ram_16kb;
@@ -211,15 +241,40 @@ void cb_set_display_vga_pointer(VGADev *vga)
     ui_state.vga = vga;
 }
 
+void cb_set_display_keyboard_pointer(KeyboardDev *keyboard)
+{
+    ui_state.keyboard = keyboard;
+}
 
 void cb_flush_ui()
 {
+
+    update_keyboard_window();
     // flush per new instruction
     update_instruction_window();
 
-    ui_state.last_byte_index_decoded += ui_state.decoded_instr.total_length;
-    if (ui_state.last_byte_index_decoded >= ui_state.last_byte_index_printed)
+    // for each instruction, update the last_byte_decoded = EIP 
+    //   window:
+    //   int first_byte_printed = ((sizeof(Matrix)-1) <= last_byte_printed) ? (last_byte_printed - sizeof(Matrix) - 1) : 0;
+    //   bool EIP_before_prev = (EIP < first_byte_printed);
+    //   bool EIP_after_prev =  (EIP > last_byte_printed);
+    //  if (EIP_before_prev || EIP_after_prev)
+    //      program_cursor = EIP, last_byte_index_printed = (EIP == 0) ? 0 : EIP - 1 // retreat program stream
+            // update_program_prev:
+    //              iterate bytes_printed and program_cursor until matrix is filled or program cursor reaches the end 
+    //              ui_state.last_byte_index_printed += bytes_in_matrix; 
+
+    uint32_t eip = ui_state.cpu.gen_purpose_registers[EIP].dword;
+    size_t matrix_size = (size_t)ui_state.pm_rows * (size_t)ui_state.pm_cols;
+    uint32_t first_byte_printed = (ui_state.last_byte_index_printed >= (uint32_t)(matrix_size - 1)) ? (ui_state.last_byte_index_printed - (matrix_size - 1) ) : 0;
+    bool EIP_before_prev = (eip < first_byte_printed);
+    bool EIP_after_prev = (eip > ui_state.last_byte_index_printed);
+    if (EIP_before_prev || EIP_after_prev)
+    {
+        ui_state.program_cursor = eip;
+        ui_state.last_byte_index_printed = (eip == 0 )? 0 : eip - 1; // this is the previous window 
         update_program_prev();
+    }
 
     if (ui_state.altered_vram)
     {
@@ -262,7 +317,19 @@ void cb_flush_ui()
         ui_state.altered_stack = false;
     }
 
-    sleep_ms(70);
+    // not liking how an actual part of the emulator depends on ui. but for now its ok
+    int ch = getch();
+    if (ch != ERR) 
+    {
+        if (ui_state.keyboard != NULL)
+        {
+            KeyboardDev *k = ui_state.keyboard;
+            k->enqueue(k->keyboard_buffer, (uint8_t)ch, (size_t *)&k->keystrokes_in_queue, sizeof(k->keyboard_buffer));
+            if (k->interrupter.interrupt_line != NULL)
+                k->interrupter.interrupt_line(k->interrupter.irq_num);
+        }
+    }
+
 }
 
 void init_ui() 
@@ -270,8 +337,25 @@ void init_ui()
     initscr();
     cbreak(); // exits out on ctrl+c
     noecho();
-    start_color();
+// Use getch() with non-blocking mode:
+// 
+// nodelay(stdscr, TRUE) or timeout(0) to make getch() return immediately
+// 
+// cbreak() + noecho() so keypresses are immediate
+// 
+// read keycode:
+// 
+// int ch = getch();
+// 
+// if ch != ERR, enqueue
+// 
+// If you also want arrow keys, enable:
+// 
+// keypad(stdscr, TRUE) and handle KEY_UP, etc.
+    nodelay(stdscr, TRUE);
+    keypad(stdscr, TRUE);
 
+    start_color();
     init_pair(1, COLOR_CYAN, COLOR_BLACK);
     init_pair(2, COLOR_MAGENTA, COLOR_BLACK);
     init_pair(3, COLOR_YELLOW, COLOR_BLACK);
@@ -308,9 +392,11 @@ void init_ui()
     machine_state.ui_callbacks.ui_copy_mem_after_execute = cb_copy_mem_after_execute;
     machine_state.ui_callbacks.ui_set_display_ram_ptr = cb_set_display_ram_pointer;
     machine_state.ui_callbacks.ui_set_display_vga_pointer = cb_set_display_vga_pointer;
+    machine_state.ui_callbacks.ui_set_display_keyboard_pointer = cb_set_display_keyboard_pointer;
     machine_state.ui_callbacks.ui_set_program_pointer = cb_set_program_pointer;
     machine_state.ui_callbacks.ui_flush_ui = cb_flush_ui;
     machine_state.ui_callbacks.ui_reset_stack_after_execute = cb_reset_stack_after_execute;
+    machine_state.ui_callbacks.ui_copy_keyboard_input = cb_copy_keyboard_input;
 }
 
 void destroy_window() {
@@ -595,7 +681,7 @@ static void setup_memory_window()
 
     create_table(win, objects[MEMORY_DATA_TABLE_AREA].y_pos, objects[MEMORY_DATA_TABLE_AREA].x_pos,  objects[MEMORY_DATA_TABLE_AREA].height, objects[MEMORY_DATA_TABLE_AREA].width, objects[MEMORY_DATA_TABLE_ENTRY].width, objects[MEMORY_DATA_TABLE_ENTRY].height, "DATA");
 
-    // ---- Stack partition ----
+    // Stack partition 
 
     mvwprintw(win, 1, objects[MEMORY_STACK_TABLE_AREA].x_pos - 9, "ADDRESS");
     draw_partition_line(win, objects[MEMORY_STACK_TABLE_AREA].x_pos - 10, win_h);
@@ -765,6 +851,13 @@ static void update_screen_window()
     wrefresh(ui_state.windows[WINDOW_SCREEN]);
 }
 
+//======================================================================PROGRAM====================================================================
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//======================================================================PROGRAM====================================================================
+
 
 static inline uint8_t *get_matrix_index(int row, int col)
 {
@@ -794,11 +887,10 @@ static void repopulate_matrix()
         {
             if (ui_state.program_cursor < 0 || (size_t)ui_state.program_cursor >= ui_state.program->size)  goto done;
             *get_matrix_index(row, col) = ui_state.program->arr[ui_state.program_cursor++];
-            bytes_in_matrix++;
         }
     }
     done:
-    ui_state.last_byte_index_printed += bytes_in_matrix;
+    ui_state.last_byte_index_printed = (ui_state.program_cursor == 0) ? 0 : (ui_state.program_cursor - 1);
 }
 
 static void update_program_prev()
@@ -824,6 +916,33 @@ static void setup_program_window()
     draw_matrix();
     wrefresh(ui_state.windows[WINDOW_PROGRAM]);
 }
+
+
+//======================================================================KEYBOARD====================================================================
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//======================================================================KEYBOARD====================================================================
+
+static setup_keyboard_window()
+{
+    werase(ui_state.windows[WINDOW_KEYBOARD]);
+    box(ui_state.windows[WINDOW_KEYBOARD], 0, 0);
+
+    wattron(ui_state.windows[WINDOW_KEYBOARD], A_STANDOUT);
+    mvwprintw(ui_state.windows[WINDOW_KEYBOARD], 0, 1, "KB");
+    wattroff(ui_state.windows[WINDOW_KEYBOARD], A_STANDOUT);
+
+    wrefresh(ui_state.windows[WINDOW_KEYBOARD]);
+}
+
+static void update_keyboard_window()
+{
+    mvwprintw(ui_state.windows[WINDOW_KEYBOARD], 2, 2, "%c", (char)ui_state.keyboard_input);
+    wrefresh(ui_state.windows[WINDOW_KEYBOARD]);
+}
+
 
 // ============================================================HELPERS==============================================================
 static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int cell_w, int cell_h, const char *title)
@@ -864,17 +983,15 @@ static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int ce
     mvwaddch(win, yb, x0 + width, ACS_LRCORNER);
 
     // bottom column separators
-    for (int c = 1; c < cols; c++) {
+    for (int c = 1; c < cols; c++) 
         mvwaddch(win, yb, x0 + c * cell_w, ACS_BTEE);
-    }
 
     // Vertical lines 
     mvwvline(win, y0 + 1, x0, ACS_VLINE, height - 1);
     mvwvline(win, y0 + 1, x0 + width, ACS_VLINE, height - 1);
 
-    for (int c = 1; c < cols; c++) {
+    for (int c = 1; c < cols; c++) 
         mvwvline(win, y0 + 1, x0 + c * cell_w, ACS_VLINE, height - 1);
-    }
 }
 
 static void draw_partition_line(WINDOW *win, int x, int height)

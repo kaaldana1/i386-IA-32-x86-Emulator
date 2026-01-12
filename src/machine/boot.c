@@ -1,7 +1,8 @@
 #include "machine/boot.h"
 #include "hardware_sim/memmap.h"
 #include "ui/display.h"
-
+#include "core/interrupt/interrupt_controller.h"
+#include "core/interrupt/interrupt_handlers.h"
 
 
 typedef struct 
@@ -11,7 +12,7 @@ typedef struct
 } Machine;
 
 static Machine *boot_sequence(Program *p);
-static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c, VGADev *v);
+static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c, VGADev *v, KeyboardDev *kb);
 
 int start(Program *p) 
 {
@@ -26,6 +27,8 @@ static Machine *boot_sequence(Program *p)
     RAMDev *ram = init_ram(); // 16 kib array
     CONSOLEDev *c = init_console();
     VGADev *v = init_vga();
+    KeyboardDev *kb = init_keyboard();
+
     // BUS has an address table, an entry in the table expects:
         /*
             uint32_t base;
@@ -36,10 +39,13 @@ static Machine *boot_sequence(Program *p)
         */
     BUS *bus = create_bus(MAX_DEVICES);
     
+    init_interrupt_handler(bus, v, kb);
+    init_interrupt_controller(kb, v);
+
     // Register devices into the bus:
         // Ram starts at 0x0, size is 16kb
         // Console port is at address 0x4000
-    create_addr_space(ram, bus, c, v); 
+    create_addr_space(ram, bus, c, v, kb); 
     
     // Creates GDT at GDT base
         /* Descriptors:
@@ -59,8 +65,6 @@ static Machine *boot_sequence(Program *p)
     cpu->segment_registers[DS].selector = 0x1 -> Indexes into User Data desciptor
     cpu->segment_registers[SS].selector = 0x2 -> Indexes into User Stack desciptor
         */
-    // Sets EIP and  ESP to starting address
-    // TODO: EIP and ESP need to explicitly be offsets. Need to calculate segment + offset separately
     cpu_protected_mode_reset(bus, cpu, GDT_BASE_ADDR, GDT_SIZE);
     init_execution_table();
     load_program(bus, p, USER_CODE_BASE_ADDR);
@@ -72,11 +76,12 @@ static Machine *boot_sequence(Program *p)
     return m;
 }
 
-static int create_addr_space(RAMDev *ram,  BUS *bus, CONSOLEDev *c, VGADev *v) 
+static int create_addr_space(RAMDev *ram,  BUS *bus, CONSOLEDev *c, VGADev *v, KeyboardDev *kb) 
 {
     bus_register(bus, RAM_BASE_ADDR, RAM_SIZE, ram_read, ram_write, ram);
     bus_register(bus, CONSOLE_BASE_ADDR, CONSOLE_SIZE,  console_read_stub, console_write, c); 
     bus_register(bus, VGA_BASE_ADDR, VGA_SIZE, vram_read_stub, vram_write, v);
+    bus_register(bus, KEYBOARD_BASE_ADDR, KEYBOARD_SIZE, keyboard_read, keyboard_write, kb);
     return 1;
 }
 

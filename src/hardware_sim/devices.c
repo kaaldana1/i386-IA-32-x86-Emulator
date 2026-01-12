@@ -1,5 +1,9 @@
 #include "hardware_sim/devices_internal.h"
+#include "core/time_sim.h"
 #include "ui/display_api.h"
+
+int enqueue(uint8_t *buffer, uint8_t data, size_t *keystrokes_in_queue, size_t size);
+int dequeue(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t size);
 
 RAMDev *init_ram(void)
 {
@@ -23,6 +27,17 @@ VGADev *init_vga(void)
     machine_state.ui_callbacks.ui_set_display_vga_pointer(v);
     return v;
 }
+
+KeyboardDev *init_keyboard()
+{
+    KeyboardDev *kb = (KeyboardDev*)calloc(1, sizeof(KeyboardDev));
+    memset(kb, 0, sizeof(KeyboardDev));
+    machine_state.ui_callbacks.ui_set_display_keyboard_pointer(kb);
+    kb->dequeue = dequeue;
+    kb->enqueue = enqueue;
+    return kb;
+}
+
 
 int ram_write_byte(RAMDev *r, uint8_t value, uint32_t address) 
 {
@@ -103,13 +118,56 @@ int ram_write(RAMDev *r, uint32_t value, uint32_t address, size_t width)
 
 int console_read_stub(void *device, uint32_t *value, uint32_t address, size_t width)
 {
-    (void)device; (void)value; address = 0; width = 0;
     return 1;
+   
 }
 
 int console_write(void *device, uint32_t data, uint32_t addr, size_t width) 
 {
     // call ui
+    return 1;
+}
+
+
+int keyboard_read(void *device, uint32_t *value, uint32_t address, size_t width)
+{
+    KeyboardDev *k = device;
+    if (address == KEYBOARD_BASE_ADDR)
+        *value = k->read;
+    if (address == KEYBOARD_BASE_ADDR + 4)
+        *value = (uint32_t)k->status;
+    return 1;
+}
+
+
+int keyboard_write(void *device, uint32_t data, uint32_t addr, size_t width) 
+{
+    KeyboardDev *k = device;
+    k->read = (uint8_t)data;
+    k->status = true;
+    machine_state.ui_callbacks.ui_copy_keyboard_input(k->read);
+    return 1;
+}
+
+int enqueue(uint8_t *buffer, uint8_t data, size_t *keystrokes_in_queue, size_t size)
+{
+    bool buffer_overflow = false;
+    if (*keystrokes_in_queue >= size) { return 0; }
+    if (*keystrokes_in_queue == 0) { goto insert; }
+    for(size_t i = *keystrokes_in_queue; i > 0; i--)
+        buffer[i] = buffer[i - 1];
+    
+    insert:
+    buffer[0] = data;
+    *keystrokes_in_queue = *keystrokes_in_queue + 1;
+    return 1;
+}
+
+int dequeue(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t size)
+{
+    if (*keystrokes_in_queue == 0) { return 0; }
+    *keystrokes_in_queue = *keystrokes_in_queue - 1;
+    *data = buffer[*keystrokes_in_queue];
     return 1;
 }
 

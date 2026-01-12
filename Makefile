@@ -36,6 +36,7 @@ VPATH := \
   $(SRC_DIR)/core:\
   $(SRC_DIR)/core/structs:\
   $(SRC_DIR)/core/internal:\
+  $(SRC_DIR)/core/interrupt:\
   $(SRC_DIR)/hardware_sim:\
   $(SRC_DIR)/ui:\
   $(SRC_DIR)/utils:\
@@ -46,6 +47,7 @@ SRCS := \
   $(wildcard $(SRC_DIR)/core/*.c) \
   $(wildcard $(SRC_DIR)/core/internal/*.c) \
   $(wildcard $(SRC_DIR)/core/structs/*.c) \
+  $(wildcard $(SRC_DIR)/core/interrupt/*.c) \
   $(wildcard $(SRC_DIR)/hardware_sim/*.c) \
   $(wildcard $(SRC_DIR)/machine/*.c) \
   $(wildcard $(SRC_DIR)/ui/*.c) \

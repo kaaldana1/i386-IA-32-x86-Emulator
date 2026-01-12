@@ -12,6 +12,7 @@
 typedef struct RAMDev RAMDev;
 typedef struct CONSOLEDev CONSOLEDev;
 typedef struct VGADev VGADev;
+typedef struct KeyboardDev KeyboardDev;
 typedef struct coord coord;
 
 RAMDev *init_ram(void);
@@ -27,6 +28,9 @@ VGADev *init_vga(void);
 int vram_write(void *device, uint32_t data, uint32_t addr, size_t width);
 int vram_read_stub(void *device, uint32_t *value, uint32_t address, size_t width);
 
+KeyboardDev *init_keyboard(void);
+int keyboard_read(void *device, uint32_t *value, uint32_t address, size_t width);
+int keyboard_write(void *device, uint32_t data, uint32_t addr, size_t width);
 coord find_cell(uint32_t cell_index);
 
 #endif

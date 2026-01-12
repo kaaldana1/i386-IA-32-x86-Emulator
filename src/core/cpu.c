@@ -1,6 +1,9 @@
 #include "core/cpu.h"
 #include "core/int_utils.h"
 #include "ui/display_api.h"
+#include "core/time_sim.h"
+#include "core/interrupt/interrupt_controller.h"
+#include "core/interrupt/interrupt_handlers.h"
 
 #define MAX_INSTR_LENGTH 16
 
@@ -76,6 +79,14 @@ static int prefetch (BUS *bus, uint32_t *queue, uint32_t addr)
     return 1;
 }
 
+static void execute_pending_interrupts()
+{
+    for (int i = 0; i < IRQ_COUNT; i++)
+    {
+        if (irc.enabled[i] && irc.pending[i])
+            (*irq_handler_table[i])();
+    }
+}
 
 int interpreter(CPU *cpu, BUS *bus) 
 {
@@ -87,6 +98,7 @@ int interpreter(CPU *cpu, BUS *bus)
     uint8_t byte_instr_queue[MAX_INSTR_LENGTH];
     while(address_translator(cpu, CS, EIP) < (CS_base + CS_limit) && !cpu->halt) 
     {
+        execute_pending_interrupts();
         start_addr = address_translator(cpu, CS, EIP);
         prefetch(bus, instr_queue, start_addr);
         to_byte_array(instr_queue, byte_instr_queue);
@@ -99,6 +111,9 @@ int interpreter(CPU *cpu, BUS *bus)
         #endif
 
         (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+
+        time++;
+
         
         #ifdef NCURSES_ON
         machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
