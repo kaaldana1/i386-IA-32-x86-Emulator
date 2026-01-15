@@ -2,6 +2,6 @@
 #define MY_TIME
 
 typedef long TimeSim;
-extern TimeSim time;
+extern TimeSim time_sim;
 
 #endif

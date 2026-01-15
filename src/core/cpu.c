@@ -90,37 +90,35 @@ static void execute_pending_interrupts()
 
 int interpreter(CPU *cpu, BUS *bus) 
 {
+
+    execute_pending_interrupts();
     uint32_t start_addr;
     uint32_t CS_base = cpu->segment_registers[CS].base;
     uint32_t CS_limit = cpu->segment_registers[CS].limit;
 
     uint32_t instr_queue[MAX_INSTR_LENGTH / 4];
     uint8_t byte_instr_queue[MAX_INSTR_LENGTH];
-    while(address_translator(cpu, CS, EIP) < (CS_base + CS_limit) && !cpu->halt) 
-    {
-        execute_pending_interrupts();
-        start_addr = address_translator(cpu, CS, EIP);
-        prefetch(bus, instr_queue, start_addr);
-        to_byte_array(instr_queue, byte_instr_queue);
-        Instruction *decoded_instruction = decoder(byte_instr_queue);
+    // TODO: change this to a conditional and move while loop up a layer (machine loop not interpreter loop)
+    // will continue to loop while computer is on, not when the program ends
+    if (!(address_translator(cpu, CS, EIP) < (CS_base + CS_limit)) || (cpu->halt))
+        return 0;
+    // TODO: execute_pending_interrupts stay here
+    start_addr = address_translator(cpu, CS, EIP);
+    prefetch(bus, instr_queue, start_addr);
+    to_byte_array(instr_queue, byte_instr_queue);
+    Instruction *decoded_instruction = decoder(byte_instr_queue);
 
-        cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
+    cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
-        #ifdef NCURSES_ON
-        machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
-        #endif
+    machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
 
-        (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+    (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
 
-        time++;
 
-        
-        #ifdef NCURSES_ON
-        machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
-        machine_state.ui_callbacks.ui_reset_stack_after_execute();
-        machine_state.ui_callbacks.ui_flush_ui();
-        #endif
-    }
+    machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
+    machine_state.ui_callbacks.ui_reset_stack_after_execute();
+    
+    time_sim++;
     return 1;
 }
 

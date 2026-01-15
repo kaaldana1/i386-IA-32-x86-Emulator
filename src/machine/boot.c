@@ -1,23 +1,50 @@
+#include <ncurses.h>
 #include "machine/boot.h"
 #include "hardware_sim/memmap.h"
-#include "ui/display.h"
+#include "hardware_sim/devices_internal.h"
+#include "core/time_sim.h"
+#include "ui/display_api.h"
 #include "core/interrupt/interrupt_controller.h"
 #include "core/interrupt/interrupt_handlers.h"
-
 
 typedef struct 
 {
     CPU *cpu;
     BUS *bus;
+    RAMDev *ram;
+    VGADev *v;
+    KeyboardDev *kb;
 } Machine;
 
 static Machine *boot_sequence(Program *p);
 static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c, VGADev *v, KeyboardDev *kb);
 
+
+
 int start(Program *p) 
 {
     Machine *m = boot_sequence(p);
-    interpreter(m->cpu, m->bus);
+    int ch = 0;
+    while (ch != 'q') 
+    {
+        interpreter(m->cpu, m->bus);
+        ch = getch();
+        if (ch != ERR) 
+        {
+            if (m->kb != NULL)
+            {
+                KeyboardDev *k = m->kb;
+                k->enqueue(k->keyboard_buffer, (uint8_t)ch, (size_t *)&k->keystrokes_in_queue, sizeof(k->keyboard_buffer));
+                if (k->interrupter.interrupt_line != NULL)
+                    k->interrupter.interrupt_line(k->interrupter.irq_num);
+            }
+        }
+
+        if ((time_sim % 2) == 0)
+            m->v->interrupter.interrupt_line(m->v->interrupter.irq_num);
+
+        machine_state.ui_callbacks.ui_flush_ui();
+    }
     return 1;
 }
 
@@ -70,7 +97,7 @@ static Machine *boot_sequence(Program *p)
     load_program(bus, p, USER_CODE_BASE_ADDR);
 
     Machine *m = (Machine *)calloc(1, sizeof(Machine));
-    *m = (Machine){.bus = bus, .cpu = cpu };
+    *m = (Machine){.bus = bus, .cpu = cpu, .ram = ram, .kb = kb, .v = v };
 
 
     return m;

@@ -16,7 +16,9 @@ typedef void (*set_display_vga_pointer)(const VGADev *vga);
 typedef void (*set_display_keyboard_pointer)(KeyboardDev *kb);
 typedef void (*reset_stack_after_execute)();
 typedef void (*copy_keyboard_input)(uint8_t key);
+typedef void (*update_screen)();
 typedef void (*flush_ui)();
+
 typedef struct 
 {
     copy_instr_after_decode   ui_copy_instr_after_decode;
@@ -28,6 +30,7 @@ typedef struct
     reset_stack_after_execute ui_reset_stack_after_execute;
     set_display_keyboard_pointer ui_set_display_keyboard_pointer;
     copy_keyboard_input       ui_copy_keyboard_input;
+    update_screen             ui_update_screen;
     flush_ui                  ui_flush_ui;
 } UI_Callbacks;
 

@@ -1,3 +1,4 @@
 #include "core/time_sim.h"
 
-TimeSim time = 0;
+TimeSim time_sim = 0;
+

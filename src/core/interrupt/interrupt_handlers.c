@@ -1,3 +1,4 @@
+#include "ui/display_api.h"
 #include "hardware_sim/devices_internal.h"
 #include "hardware_sim/memmap.h"
 #include "hardware_sim/bus.h"
@@ -39,7 +40,7 @@ void keyboard_handler()
 
 void vga_handler()
 {
-
+    machine_state.ui_callbacks.ui_update_screen();
 }
 
 

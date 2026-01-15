@@ -171,6 +171,15 @@ int dequeue(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t 
     return 1;
 }
 
+
+//====================================================VRAM========================================================================
+
+void refresh_screen(VGADev *v)
+{
+    if ((time_sim % 1000) == 0)
+        v->interrupter.interrupt_line(v->interrupter.irq_num);
+}
+
 static inline uint32_t offset_to_cell_index(uint32_t offset)
 {
     return offset /2;

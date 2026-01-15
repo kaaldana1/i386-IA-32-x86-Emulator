@@ -12,6 +12,7 @@
 #include "ids/str_opcode_list.h"
 #include "machine/program_loader.h"
 #include "ids/register_ids.h"
+#include "core/time_sim.h"
 
 
 typedef struct 
@@ -31,6 +32,7 @@ typedef enum
     WINDOW_PROGRAM,
     WINDOW_SCREEN,
     WINDOW_KEYBOARD,
+    WINDOW_TIME,
     WINDOW_COUNT
 } WindowType;
 
@@ -42,7 +44,8 @@ const WindowLayout window_layouts[WINDOW_COUNT] =
     [WINDOW_REGISTERS] = {28, 67, 0, 35},
     [WINDOW_MEMORY] = {28, 75, 0, 103},
     [WINDOW_SCREEN] = {24, 67, 28, 35},
-    [WINDOW_KEYBOARD] = {4, 10, 28, 102}
+    [WINDOW_KEYBOARD] = {4, 10, 28, 102},
+    [WINDOW_TIME] = {4, 10, 32, 102}
 };
 
 typedef struct 
@@ -119,10 +122,12 @@ static void print_byte_binary(int win_num, int y_offset, int x_offset, char *pri
 static void print_decoder_field(uint8_t *field, size_t field_size, int y_offset, int x_offset);
 static void reset_decoder_window();
 static void reset_memory_window();
+static void setup_clock_window();
 static void setup_register_window();
 static void setup_decoder_window();
 static void setup_memory_window();
 static void setup_instruction_window();
+static void update_time_window();
 static void update_instruction_window();
 static void update_register_window();
 static void update_decoder_window();
@@ -146,6 +151,8 @@ typedef struct
     CPU cpu;
     Instruction decoded_instr;
 
+    long seconds_passed;
+
     uint8_t memory[4]; // legacy
     uint8_t *ram;
     uint32_t mem_address;
@@ -154,7 +161,7 @@ typedef struct
     uint32_t last_byte_index_printed;
     uint32_t last_byte_index_decoded;
     uint32_t program_cursor;
-    int tmp_instr_counter; // limit vga updates
+
     int instr_counter;
 
     VGADev *vga;
@@ -176,12 +183,12 @@ typedef struct
 static UI_State ui_state = {.windows = {NULL}, 
                             .cpu = {0}, .memory = {0}, 
                             .ram = NULL, .keyboard = NULL,
+                            .seconds_passed = 0,
                             .decoded_instr = {0}, 
                             .program = NULL,
                             .last_byte_index_decoded = 0,
                             .last_byte_index_printed = 0,
                             .program_cursor = 0,
-                            .tmp_instr_counter = 0,
                             .instr_counter = 0,
                             .preview_matrix = NULL, 
                             .altered_cpu = false, 
@@ -195,6 +202,10 @@ static UI_State ui_state = {.windows = {NULL},
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //==========================================================================CALLBACKS=========================================================================
+void cb_update_screen()
+{
+    ui_state.altered_vram = true;
+}
 
 void cb_copy_instr_after_decode(const Instruction* instr)
 {
@@ -248,9 +259,9 @@ void cb_set_display_keyboard_pointer(KeyboardDev *keyboard)
 
 void cb_flush_ui()
 {
-
     update_keyboard_window();
     // flush per new instruction
+    update_time_window();
     update_instruction_window();
 
     // for each instruction, update the last_byte_decoded = EIP 
@@ -279,12 +290,7 @@ void cb_flush_ui()
     if (ui_state.altered_vram)
     {
         update_screen_window();
-        ui_state.tmp_instr_counter = 0;
         ui_state.altered_vram = false;
-    }
-    else
-    {
-        ui_state.altered_vram = (ui_state.tmp_instr_counter++ == 1);
     }
 
     if (ui_state.altered_cpu) 
@@ -318,17 +324,6 @@ void cb_flush_ui()
     }
 
     // not liking how an actual part of the emulator depends on ui. but for now its ok
-    int ch = getch();
-    if (ch != ERR) 
-    {
-        if (ui_state.keyboard != NULL)
-        {
-            KeyboardDev *k = ui_state.keyboard;
-            k->enqueue(k->keyboard_buffer, (uint8_t)ch, (size_t *)&k->keystrokes_in_queue, sizeof(k->keyboard_buffer));
-            if (k->interrupter.interrupt_line != NULL)
-                k->interrupter.interrupt_line(k->interrupter.irq_num);
-        }
-    }
 
 }
 
@@ -337,23 +332,9 @@ void init_ui()
     initscr();
     cbreak(); // exits out on ctrl+c
     noecho();
-// Use getch() with non-blocking mode:
-// 
-// nodelay(stdscr, TRUE) or timeout(0) to make getch() return immediately
-// 
-// cbreak() + noecho() so keypresses are immediate
-// 
-// read keycode:
-// 
-// int ch = getch();
-// 
-// if ch != ERR, enqueue
-// 
-// If you also want arrow keys, enable:
-// 
-// keypad(stdscr, TRUE) and handle KEY_UP, etc.
     nodelay(stdscr, TRUE);
     keypad(stdscr, TRUE);
+    refresh();
 
     start_color();
     init_pair(1, COLOR_CYAN, COLOR_BLACK);
@@ -380,12 +361,14 @@ void init_ui()
         wrefresh(ui_state.windows[i]);
     }
 
+    setup_clock_window();
     setup_register_window();
     setup_decoder_window();
     setup_memory_window();
     setup_instruction_window();
     setup_screen_window();
     setup_program_window();
+    setup_keyboard_window();
     
     machine_state.ui_callbacks.ui_copy_instr_after_decode = cb_copy_instr_after_decode;
     machine_state.ui_callbacks.ui_copy_cpu_after_execute = cb_copy_cpu_after_execute;
@@ -397,6 +380,7 @@ void init_ui()
     machine_state.ui_callbacks.ui_flush_ui = cb_flush_ui;
     machine_state.ui_callbacks.ui_reset_stack_after_execute = cb_reset_stack_after_execute;
     machine_state.ui_callbacks.ui_copy_keyboard_input = cb_copy_keyboard_input;
+    machine_state.ui_callbacks.ui_update_screen = cb_update_screen;
 }
 
 void destroy_window() {
@@ -931,7 +915,7 @@ static setup_keyboard_window()
     box(ui_state.windows[WINDOW_KEYBOARD], 0, 0);
 
     wattron(ui_state.windows[WINDOW_KEYBOARD], A_STANDOUT);
-    mvwprintw(ui_state.windows[WINDOW_KEYBOARD], 0, 1, "KB");
+    mvwprintw(ui_state.windows[WINDOW_KEYBOARD], 0, 1, "KEYBOARD");
     wattroff(ui_state.windows[WINDOW_KEYBOARD], A_STANDOUT);
 
     wrefresh(ui_state.windows[WINDOW_KEYBOARD]);
@@ -943,6 +927,36 @@ static void update_keyboard_window()
     wrefresh(ui_state.windows[WINDOW_KEYBOARD]);
 }
 
+//======================================================================CLOCK====================================================================
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//======================================================================CLOCK====================================================================
+static void setup_clock_window()
+{
+    werase(ui_state.windows[WINDOW_TIME]);
+    box(ui_state.windows[WINDOW_TIME], 0, 0);
+
+    wattron(ui_state.windows[WINDOW_TIME], A_STANDOUT);
+    mvwprintw(ui_state.windows[WINDOW_TIME], 0, 1, "TIME");
+    wattroff(ui_state.windows[WINDOW_TIME], A_STANDOUT);
+
+    mvwprintw(ui_state.windows[WINDOW_TIME], 2, 2, "%04lu", ui_state.seconds_passed);
+
+    wrefresh(ui_state.windows[WINDOW_TIME]);
+
+}
+
+static void update_time_window()
+{
+    if ((time_sim % 2100) == 0)
+    {
+        ui_state.seconds_passed++;
+        mvwprintw(ui_state.windows[WINDOW_TIME], 2, 2, "%04lu", ui_state.seconds_passed);
+    }
+    wrefresh(ui_state.windows[WINDOW_TIME]);
+}
 
 // ============================================================HELPERS==============================================================
 static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int cell_w, int cell_h, const char *title)
