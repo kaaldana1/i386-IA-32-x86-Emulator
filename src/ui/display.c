@@ -12,7 +12,7 @@
 #include "ids/str_opcode_list.h"
 #include "machine/program_loader.h"
 #include "ids/register_ids.h"
-#include "core/time_sim.h"
+#include "core/clock.h"
 
 
 typedef struct 
@@ -32,7 +32,7 @@ typedef enum
     WINDOW_PROGRAM,
     WINDOW_SCREEN,
     WINDOW_KEYBOARD,
-    WINDOW_TIME,
+    // WINDOW_TIME,
     WINDOW_COUNT
 } WindowType;
 
@@ -45,7 +45,7 @@ const WindowLayout window_layouts[WINDOW_COUNT] =
     [WINDOW_MEMORY] = {28, 75, 0, 103},
     [WINDOW_SCREEN] = {24, 67, 28, 35},
     [WINDOW_KEYBOARD] = {4, 10, 28, 102},
-    [WINDOW_TIME] = {4, 10, 32, 102}
+    // [WINDOW_TIME] = {4, 10, 32, 102}
 };
 
 typedef struct 
@@ -261,7 +261,7 @@ void cb_flush_ui()
 {
     update_keyboard_window();
     // flush per new instruction
-    update_time_window();
+    // update_time_window();
     update_instruction_window();
 
     // for each instruction, update the last_byte_decoded = EIP 
@@ -361,7 +361,7 @@ void init_ui()
         wrefresh(ui_state.windows[i]);
     }
 
-    setup_clock_window();
+    // setup_clock_window();
     setup_register_window();
     setup_decoder_window();
     setup_memory_window();
@@ -933,6 +933,7 @@ static void update_keyboard_window()
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //======================================================================CLOCK====================================================================
+/*
 static void setup_clock_window()
 {
     werase(ui_state.windows[WINDOW_TIME]);
@@ -950,13 +951,14 @@ static void setup_clock_window()
 
 static void update_time_window()
 {
-    if ((time_sim % 2100) == 0)
+    if ((clock % 2100) == 0)
     {
         ui_state.seconds_passed++;
         mvwprintw(ui_state.windows[WINDOW_TIME], 2, 2, "%04lu", ui_state.seconds_passed);
     }
     wrefresh(ui_state.windows[WINDOW_TIME]);
 }
+*/
 
 // ============================================================HELPERS==============================================================
 static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int cell_w, int cell_h, const char *title)

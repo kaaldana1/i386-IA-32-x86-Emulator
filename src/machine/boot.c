@@ -2,10 +2,10 @@
 #include "machine/boot.h"
 #include "hardware_sim/memmap.h"
 #include "hardware_sim/devices_internal.h"
-#include "core/time_sim.h"
 #include "ui/display_api.h"
 #include "core/interrupt/interrupt_controller.h"
 #include "core/interrupt/interrupt_handlers.h"
+#include "core/clock.h"
 
 typedef struct 
 {
@@ -14,6 +14,7 @@ typedef struct
     RAMDev *ram;
     VGADev *v;
     KeyboardDev *kb;
+    Clock *clock;
 } Machine;
 
 static Machine *boot_sequence(Program *p);
@@ -24,10 +25,13 @@ static int create_addr_space(RAMDev *ram, BUS *bus, CONSOLEDev *c, VGADev *v, Ke
 int start(Program *p) 
 {
     Machine *m = boot_sequence(p);
+    if (m == NULL) {
+        return 0;
+    }
     int ch = 0;
     while (ch != 'q') 
     {
-        interpreter(m->cpu, m->bus);
+        interpreter(m->cpu, m->bus, m->clock);
         ch = getch();
         if (ch != ERR) 
         {
@@ -40,7 +44,7 @@ int start(Program *p)
             }
         }
 
-        if ((time_sim % 2) == 0)
+        if (m->clock != NULL && read_clock(m->clock) % m->v->refresh_rate == 0)
             m->v->interrupter.interrupt_line(m->v->interrupter.irq_num);
 
         machine_state.ui_callbacks.ui_flush_ui();
@@ -55,6 +59,7 @@ static Machine *boot_sequence(Program *p)
     CONSOLEDev *c = init_console();
     VGADev *v = init_vga();
     KeyboardDev *kb = init_keyboard();
+    Clock *clock = init_clock();
 
     // BUS has an address table, an entry in the table expects:
         /*
@@ -94,10 +99,12 @@ static Machine *boot_sequence(Program *p)
         */
     cpu_protected_mode_reset(bus, cpu, GDT_BASE_ADDR, GDT_SIZE);
     init_execution_table();
-    load_program(bus, p, USER_CODE_BASE_ADDR);
+    if (load_program(bus, p, USER_CODE_BASE_ADDR) == 0) {
+        return NULL;
+    }
 
     Machine *m = (Machine *)calloc(1, sizeof(Machine));
-    *m = (Machine){.bus = bus, .cpu = cpu, .ram = ram, .kb = kb, .v = v };
+    *m = (Machine){.bus = bus, .cpu = cpu, .ram = ram, .kb = kb, .v = v, .clock = clock};
 
 
     return m;

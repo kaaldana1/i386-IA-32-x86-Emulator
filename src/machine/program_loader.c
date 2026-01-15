@@ -2,25 +2,33 @@
 #include "ui/display_api.h"
 #include "machine/program_loader.h"
 
-Program *create_program(void)
-{
-    Program *p = (Program*)calloc(1, sizeof(Program));
-    return p;
-}
 
-static FILE *get_file()
+
+static FILE *get_file(char *filename)
 {
-    FILE *fptr = fopen("src/machine/hex_code.txt", "rb");
+    FILE *fptr = fopen(filename, "rb");
     if (fptr == NULL) { 
         return NULL; 
     }
     return fptr;
 }
 
+Program *create_program(char *filename)
+{
+    Program *p = (Program*)calloc(1, sizeof(Program));
+    FILE *fptr = get_file(filename);
+    if (fptr == NULL) {
+        free(p);
+        return NULL;
+    }
+    p->filename = fptr;
+    return p;
+}
 
 static int parse_file(Program *program)
 {
-    FILE *fptr = get_file();
+    FILE *fptr = program->filename;
+    if (fptr == NULL) { return 0; }
 
     char buff[200];
 
@@ -75,7 +83,7 @@ static inline uint32_t create_dword(Program *program, size_t offset)
 
 int load_program(BUS *bus, Program *program, uint32_t code_addr) 
 {
-    parse_file(program);
+    if (parse_file(program) == 0) { return 0; }
     size_t offset = 0;
     while (offset + 4 < program->size) 
     {

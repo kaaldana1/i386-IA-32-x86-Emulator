@@ -1,5 +1,5 @@
 #include "hardware_sim/devices_internal.h"
-#include "core/time_sim.h"
+#include "core/clock.h"
 #include "ui/display_api.h"
 
 int enqueue(uint8_t *buffer, uint8_t data, size_t *keystrokes_in_queue, size_t size);
@@ -24,6 +24,7 @@ VGADev *init_vga(void)
 {
     VGADev *v = (VGADev*)calloc(1, sizeof(VGADev));
     memset(v, 0, sizeof(VGADev));
+    v->refresh_rate = 300;
     machine_state.ui_callbacks.ui_set_display_vga_pointer(v);
     return v;
 }
@@ -132,9 +133,9 @@ int console_write(void *device, uint32_t data, uint32_t addr, size_t width)
 int keyboard_read(void *device, uint32_t *value, uint32_t address, size_t width)
 {
     KeyboardDev *k = device;
-    if (address == KEYBOARD_BASE_ADDR)
+    if (address == KEYBOARD_DATA_ADDR)
         *value = k->read;
-    if (address == KEYBOARD_BASE_ADDR + 4)
+    if (address == KEYBOARD_STATUS_ADDR)
         *value = (uint32_t)k->status;
     return 1;
 }
@@ -174,11 +175,6 @@ int dequeue(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t 
 
 //====================================================VRAM========================================================================
 
-void refresh_screen(VGADev *v)
-{
-    if ((time_sim % 1000) == 0)
-        v->interrupter.interrupt_line(v->interrupter.irq_num);
-}
 
 static inline uint32_t offset_to_cell_index(uint32_t offset)
 {

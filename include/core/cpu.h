@@ -5,12 +5,12 @@
 #include "decoder.h"
 #include "executor.h"
 #include "tables/execute_tables.h"
-
+#include "core/clock.h"
 
 typedef struct CPU CPU;
 CPU *create_cpu(void);
 int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t gdtr_base, uint32_t gdtr_size);
 
-int interpreter(CPU *cpu, BUS *bus);
+int interpreter(CPU *cpu, BUS *bus, Clock *clock);
 
 #endif

@@ -1,12 +1,10 @@
 #include "core/cpu.h"
 #include "core/int_utils.h"
 #include "ui/display_api.h"
-#include "core/time_sim.h"
 #include "core/interrupt/interrupt_controller.h"
 #include "core/interrupt/interrupt_handlers.h"
 
 #define MAX_INSTR_LENGTH 16
-
 
 int set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
@@ -88,7 +86,17 @@ static void execute_pending_interrupts()
     }
 }
 
-int interpreter(CPU *cpu, BUS *bus) 
+static void tick(Clock *clock)
+{
+    *clock = *clock + 1;
+}
+
+static void reset_clock(Clock *clock)
+{
+    *clock = 0;
+}
+
+int interpreter(CPU *cpu, BUS *bus, Clock *clock) 
 {
 
     execute_pending_interrupts();
@@ -117,8 +125,8 @@ int interpreter(CPU *cpu, BUS *bus)
 
     machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
     machine_state.ui_callbacks.ui_reset_stack_after_execute();
+    tick(clock);
     
-    time_sim++;
     return 1;
 }
 
