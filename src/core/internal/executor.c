@@ -6,11 +6,10 @@
 #include "core/executor.h"
 #include "core/int_utils.h"
 #include "ui/display_api.h"
+#include "ids/return_code_list.h"
 
 #define NO_CIN 0
 #define CIN 1
-#define INVALID 0
-#define VALID 1
 
 #define OPC_THROW_RESULT_MASK ( OPC_CMP | OPC_TEST )
 #define OPC_USES_CARRY_MASK (OPC_ADD | OPC_ADC | OPC_INC | OPC_MUL | OPC_IMUL )
@@ -28,9 +27,8 @@ static void print_cell(uint8_t byte, uint32_t address)
     uint8_t *byte_buffer = (uint8_t *)malloc(4);
     byte_buffer[0] = byte;
     
-    #ifdef NCURSES_ON
-    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
-    #endif
+    if (ui_on)
+        machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 static void print_dword(uint32_t dword, uint32_t address) 
@@ -39,9 +37,8 @@ static void print_dword(uint32_t dword, uint32_t address)
     for(size_t shift = 0; shift <= 24; shift += 8)
         byte_buffer[shift/8] = (uint8_t)(dword & ((uint32_t)0xFF << shift) >> shift);
     
-    #ifdef NCURSES_ON
-    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
-    #endif
+    if (ui_on)
+        machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 
@@ -57,6 +54,7 @@ FlagPolicy get_FlagPolicy(Opclass opc)
     if (opc & FP_LOGIC_GRP_MASK) return FP_LOGIC_GRP;
     if (opc & FP_SHIFT_GRP_MASK) return FP_SHIFT_GRP;
     if (opc & FP_ROTATE_GRP_MASK) return FP_ROTATE_GRP;
+    return (FlagPolicy){0,0,0,0,0};
 }
 
 static int update_status_register(CPU *cpu, Opclass opc, uint16_t possible_flags) 
@@ -198,28 +196,43 @@ static inline char get_operand_size(CPU *cpu, BUS *bus, Instruction *instr)
     return (instr->has_operand_size_override) ? !d_bit : d_bit;
 }
 
-static inline bool seg_bounds_check(CPU *cpu, uint32_t new_addr, SegmentRegisterType seg_type)
+static inline int seg_bounds_check(CPU *cpu, uint32_t new_addr, SegmentRegisterType seg_type)
 {
     bool valid = new_addr < (cpu->segment_registers[seg_type].limit + cpu->segment_registers[seg_type].base);
-    if (seg_type == CS && !valid) {
-        cpu->halt = 1;
-        return INVALID;
+    if (!valid)
+    {
+        if (seg_type == CS)
+            cpu->halt = 1;
+        return FAILED_SEGBOUND_CHECK;
     } // need to raise a #GP fault, abort execution
-    return VALID;
+    return EXECUTE_SUCCESS;
 }
 //=======================================================================================================================================================
 //========================================================Effective Address Calculation Helpers==========================================================
 
-static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
+static inline int bus_read_checked(BUS *bus, uint32_t *data, uint32_t addr, size_t width)
+{
+    int bus_result = bus_read(bus, data, addr, width);
+    return (bus_result == EXECUTE_SUCCESS) ? EXECUTE_SUCCESS : BUS_READ_FAILURE;
+}
+
+static inline int bus_write_checked(BUS *bus, uint32_t data, uint32_t addr, size_t width)
+{
+    int bus_result = bus_write(bus, data, addr, width);
+    return (bus_result == EXECUTE_SUCCESS) ? EXECUTE_SUCCESS : BUS_WRITE_FAILURE;
+}
+
+static int calculate_EA(CPU *cpu, Instruction *instr, uint32_t *effective_addr_out)
 {
 
     if (instr->mod == 0x3) 
-        return 0; // register direct is used
+        return INVALID_EFFECTIVE_ADDRESS;
     if (instr->sib_length == 0 && instr->mod == 0x00 && instr->rm_field == 0x05) 
     {
         if (instr->displacement_length != 4)
-            return 0; // the disp needs to be an absoluate address
-        return get_unsigned_disp(instr); // disp32 only with no SIB. In this case, displacement is an address, not an offset
+            return INVALID_EFFECTIVE_ADDRESS; // the disp needs to be an absoluate address
+        *effective_addr_out = get_unsigned_disp(instr); // disp32 only with no SIB. In this case, displacement is an address, not an offset
+        return EXECUTE_SUCCESS;
     }
         
     uint32_t effective_addr =  0;
@@ -235,37 +248,60 @@ static uint32_t calculate_EA(CPU *cpu, Instruction *instr)
         
         if (!(instr->mod == 0x00 && instr->base == 0x05))
             base = gpr32(cpu, instr->base);
-        else return effective_addr; // disp32 only WITH SIB
+        else
+        {
+            *effective_addr_out = effective_addr; // disp32 only WITH SIB
+            return EXECUTE_SUCCESS;
+        }
     }
 
     effective_addr += base; 
-    return effective_addr;
-    
+    *effective_addr_out = effective_addr;
+    return EXECUTE_SUCCESS;
 }
 
 //=======================================================================================================================================================
 //===============================================================OPERAND READERS=================================================================================
 
-static uint32_t read_rm_op(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width)
+static int read_rm_op(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, uint32_t *value_out)
 {
     if(decoded_instr->mod == 0x3) // register direct
-        return gpr_w_handler(cpu, decoded_instr->rm_field, width); 
-    else  // register direct
     {
-        uint32_t mem_value;
-        bus_read(bus, &mem_value, calculate_EA(cpu, decoded_instr), width);
-        return mem_value;
+        *value_out = gpr_w_handler(cpu, decoded_instr->rm_field, width);
+        return EXECUTE_SUCCESS;
     }
+
+    uint32_t effective_addr = 0;
+    int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+    if (result != EXECUTE_SUCCESS)
+        return result;
+
+    result = bus_read_checked(bus, value_out, effective_addr, width);
+    if (result != EXECUTE_SUCCESS)
+        return result;
+
+    return EXECUTE_SUCCESS;
 }
 
-static void write_rm_dst(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, uint32_t result, uint32_t effective_addr)
+static int write_rm_dst(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, uint32_t result, uint32_t *effective_addr_out)
 {
     if(decoded_instr->mod == 0x3)
         set_gpr_w_handler(cpu, decoded_instr->rm_field, width, result);
     else
     {
-        bus_write(bus, result, effective_addr, width);
+        uint32_t effective_addr = 0;
+        int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+        if (result != EXECUTE_SUCCESS)
+            return result;
+
+        result = bus_write_checked(bus, result, effective_addr, width);
+        if (result != EXECUTE_SUCCESS)
+            return result;
+
+        if (effective_addr_out)
+            *effective_addr_out = effective_addr;
     }
+    return EXECUTE_SUCCESS;
 
 }
 
@@ -278,29 +314,39 @@ static int alu_two_op_rm_r(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_
 {
 
     ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
-    uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, width);
+    uint32_t op1 = 0;
+    int result = read_rm_op(bus, cpu, decoded_instr, width, &op1);
+    if (result != EXECUTE_SUCCESS)
+        return result;
     uint32_t op2 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width);
     ALU(op1, op2, cin, width, opclass, &out);
 
     if (!(opclass & OPC_THROW_RESULT_MASK))
-        write_rm_dst(bus, cpu, decoded_instr, width, out.low, (decoded_instr->mod == 0x3)  ? 0 : calculate_EA(cpu, decoded_instr));
+    {
+        result = write_rm_dst(bus, cpu, decoded_instr, width, out.low, NULL);
+        if (result != EXECUTE_SUCCESS)
+            return result;
+    }
     update_status_register(cpu, opclass, out.flags_out);
 
-    return 1; 
+    return EXECUTE_SUCCESS;
 }
 
 static int alu_two_op_r_rm(BUS *bus, CPU *cpu, Instruction *decoded_instr, size_t width, Opclass opclass, int cin)
 {
     ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };                                                        
     uint32_t op1 = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width); 
-    uint32_t op2 =  read_rm_op(bus, cpu, decoded_instr, width);
+    uint32_t op2 = 0;
+    int result = read_rm_op(bus, cpu, decoded_instr, width, &op2);
+    if (result != EXECUTE_SUCCESS)
+        return result;
     ALU(op1, op2, cin, width, opclass, &out);
 
     if (!(opclass & OPC_THROW_RESULT_MASK))
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, width, out.low);
     update_status_register(cpu, opclass, out.flags_out);
 
-    return 0;                                                                                                       
+    return EXECUTE_SUCCESS;                                                                                                       
 }
 
 //=======================================================================================================================================================
@@ -326,12 +372,12 @@ int execute_ADD_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     return alu_two_op_r_rm(bus, cpu, decoded_instr, 32, OPC_ADD, NO_CIN);
 }
 
-int execute_ADD_AL_IMM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
-int execute_ADD_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
+int execute_ADD_AL_IMM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
+int execute_ADD_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
 
 // For the segment register ES
-int execute_PUSH_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
-int execute_POP_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
+int execute_PUSH_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
+int execute_POP_ES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
 
 
 int execute_OR_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
@@ -385,8 +431,8 @@ int execute_ADC_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 
 // For the segment register SS
-int execute_PUSH_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
-int execute_POP_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
+int execute_PUSH_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
+int execute_POP_SS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
 
 int execute_SBB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -436,10 +482,10 @@ int execute_AND_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 }
 
 
-int execute_AND_AL_IMM8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_AND_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_SEG_ES        (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_DAA           (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_AND_AL_IMM8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_AND_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_SEG_ES        (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_DAA           (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 int execute_SUB_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -486,8 +532,8 @@ int execute_XOR_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 }
 
 
-int execute_XOR_AL_IMM8    (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_XOR_EAX_IMM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_XOR_AL_IMM8    (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_XOR_EAX_IMM32  (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 int execute_CMP_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -510,8 +556,8 @@ int execute_CMP_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 }
 
 
-int execute_CMP_AL_IMM8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_CMP_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_CMP_AL_IMM8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_CMP_EAX_IMM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 
 //=======================================================================================================================================================
@@ -528,6 +574,7 @@ static int alu_increment_register(BUS *bus, CPU *cpu, Instruction *decoded_instr
     
     set_gpr_w_handler(cpu, destination_register, 32, out.low);
     update_status_register(cpu, OPC_INC, out.flags_out);
+    return 1;
 
 }
 
@@ -583,8 +630,13 @@ int execute_INC_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 static int push_gpr(BUS *bus, CPU *cpu, Instruction *decoded_instr, GeneralPurposeRegisterType gpr)
 {
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 4);
-    bus_write(bus, gpr32(cpu, gpr), address_translator(cpu, SS, ESP), 32);
-    return 1;
+    int result = bus_write_checked(bus, gpr32(cpu, gpr), address_translator(cpu, SS, ESP), 32);
+    if (result != EXECUTE_SUCCESS)
+    {
+        set_gpr32(cpu, ESP, gpr32(cpu, ESP) + 4);
+        return result;
+    }
+    return EXECUTE_SUCCESS;
 }
 
 // first transfers the dword at the current top of stack to destination operand
@@ -592,11 +644,13 @@ static int push_gpr(BUS *bus, CPU *cpu, Instruction *decoded_instr, GeneralPurpo
 static int pop_gpr(BUS *bus, CPU *cpu, Instruction *decoded_instr, GeneralPurposeRegisterType gpr)
 {
     uint32_t popped_data;
-    bus_read(bus, &popped_data, address_translator(cpu, SS, ESP), 32);
+    int result = bus_read_checked(bus, &popped_data, address_translator(cpu, SS, ESP), 32);
+    if (result != EXECUTE_SUCCESS) { return result; }
     set_gpr32(cpu, gpr, popped_data);
-    bus_write(bus, 0, address_translator(cpu, SS, ESP), 32); // clear stack 
+    result = bus_write_checked(bus, 0, address_translator(cpu, SS, ESP), 32);
+    if (result != EXECUTE_SUCCESS) { return result; } // clear stack
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) + 4);
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 int execute_PUSH_EAX(BUS *bus, CPU *cpu, Instruction *decoded_instr)
@@ -702,29 +756,45 @@ int execute_POP_EDI(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 int execute_PUSHA(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
     //printw("===================EXECUTING PUSHA======================\n");
-    execute_PUSH_EAX(bus, cpu, decoded_instr);
-    execute_PUSH_ECX(bus, cpu, decoded_instr);
-    execute_PUSH_EDX(bus, cpu, decoded_instr);
-    execute_PUSH_EBX(bus, cpu, decoded_instr);
-    execute_PUSH_ESP(bus, cpu, decoded_instr);
-    execute_PUSH_EBP(bus, cpu, decoded_instr);
-    execute_PUSH_ESI(bus, cpu, decoded_instr);
-    execute_PUSH_EDI(bus, cpu, decoded_instr);
-    return 1;
+    int result = execute_PUSH_EAX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_ECX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_EDX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_EBX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_ESP(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_EBP(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_ESI(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_PUSH_EDI(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    return EXECUTE_SUCCESS;
 }
 
 int execute_POPA(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
     //printw("===================EXECUTING POPA======================\n");
-    execute_POP_EAX(bus, cpu, decoded_instr);
-    execute_POP_ECX(bus, cpu, decoded_instr);
-    execute_POP_EDX(bus, cpu, decoded_instr);
-    execute_POP_EBX(bus, cpu, decoded_instr);
-    execute_POP_ESP(bus, cpu, decoded_instr);
-    execute_POP_EBP(bus, cpu, decoded_instr);
-    execute_POP_ESI(bus, cpu, decoded_instr);
-    execute_POP_EDI(bus, cpu, decoded_instr);
-    return 1;
+    int result = execute_POP_EAX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_ECX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_EDX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_EBX(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_ESP(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_EBP(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_ESI(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    result = execute_POP_EDI(bus, cpu, decoded_instr);
+    if (result != EXECUTE_SUCCESS) { return result; }
+    return EXECUTE_SUCCESS;
 }
 
 
@@ -733,15 +803,25 @@ int execute_POPA(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 static int push_imm32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 4);
-    bus_write(bus, get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 32);
-    return 1;
+    int result = bus_write_checked(bus, get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 32);
+    if (result != EXECUTE_SUCCESS)
+    {
+        set_gpr32(cpu, ESP, gpr32(cpu, ESP) + 4);
+        return result;
+    }
+    return EXECUTE_SUCCESS;
 }
 
 static int push_imm8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
     set_gpr32(cpu, ESP, gpr32(cpu, ESP) - 1);
-    bus_write(bus, 0xFF & get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 8);
-    return 1;
+    int result = bus_write_checked(bus, 0xFF & get_unsigned_imm(decoded_instr), address_translator(cpu, SS, ESP), 8);
+    if (result != EXECUTE_SUCCESS)
+    {
+        set_gpr32(cpu, ESP, gpr32(cpu, ESP) + 1);
+        return result;
+    }
+    return EXECUTE_SUCCESS;
 }
 
 //0x68
@@ -758,7 +838,7 @@ int execute_PUSH_IMM8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     return push_imm8(bus, cpu, decoded_instr);
 }
 
-int execute_BOUND_GV_MA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { return 0; }
+int execute_BOUND_GV_MA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 //=======================================================================================================================================================
 //===============================================================70 - 7F=================================================================================
@@ -770,12 +850,14 @@ int jmp_rel32(CPU *cpu, Instruction *decoded_instr)
     // bounds check, if wrong, rollback and raise error
     uint32_t new_addr = address_translator(cpu, CS, EIP);
 
-    if (seg_bounds_check(cpu, new_addr, CS) != VALID)
+    int result = seg_bounds_check(cpu, new_addr, CS);
+    if (result != EXECUTE_SUCCESS)
     {
         set_gpr32(cpu, EIP, gpr32(cpu, EIP) - imm);
         cpu->halt = true;
+        return result;
     }
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 int jmp_rel8(CPU *cpu, Instruction *decoded_instr) 
@@ -786,12 +868,14 @@ int jmp_rel8(CPU *cpu, Instruction *decoded_instr)
     set_gpr32(cpu, EIP, gpr32(cpu, EIP) + imm);
     uint32_t new_addr = address_translator(cpu, CS, EIP);
 
-    if (seg_bounds_check(cpu, new_addr, CS) != VALID)
+    int result = seg_bounds_check(cpu, new_addr, CS);
+    if (result != EXECUTE_SUCCESS)
     {
         set_gpr32(cpu, EIP, gpr32(cpu, EIP) - imm);
         cpu->halt = true;
+        return result;
     }
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 // 70 cb JO rel8 7+m,3 Jump short if overflow (OF=1)
@@ -800,7 +884,7 @@ int execute_JO_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool overflow = (cpu->status_register & OF) != 0;
     if (overflow)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 71 cb JNO rel8 7+m,3 Jump short if not overflow (OF=0)
@@ -809,7 +893,7 @@ int execute_JNO_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool overflow = (cpu->status_register & OF) != 0;
     if (!overflow)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 72 cb JB rel8 7+m,3 Jump short if below (CF=1)
@@ -820,7 +904,7 @@ int execute_JB_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool carry = (cpu->status_register & CF) != 0;
     if (carry)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 73 cb JNB rel8 7+m,3 Jump short if not below (CF=0)
@@ -831,7 +915,7 @@ int execute_JAE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool carry = (cpu->status_register & CF) != 0;
     if (!carry)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 74 cb JE rel8 7+m,3 Jump short if equal (ZF=1)
@@ -842,7 +926,7 @@ int execute_JE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool zero = (cpu->status_register & ZF) != 0;
     if (zero)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 75 cb JNE rel8 7+m,3 Jump short if not equal (ZF=0)
@@ -852,7 +936,7 @@ int execute_JNE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool zero = (cpu->status_register & ZF) != 0;
     if (!zero)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 76 cb JBE rel8 7+m,3 Jump short if below or (CF=1 or ZF=1)
@@ -863,7 +947,7 @@ int execute_JBE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool zero = (cpu->status_register & ZF) != 0;
     if (carry || zero)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 77 cb JNBE rel8 7+m,3 Jump short if not below or equal (CF=0 and ZF=0)
@@ -874,7 +958,7 @@ int execute_JA_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool zero = (cpu->status_register & ZF) != 0;
     if (!carry && !zero)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 78 cb JS rel8 7+m,3 Jump short if sign (SF=1)
@@ -883,7 +967,7 @@ int execute_JS_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool sign = (cpu->status_register & SF) != 0;
     if (sign)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 // 79 cb JNS rel8 7+m,3 Jump short if not sign (SF=0)
 int execute_JNS_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
@@ -891,7 +975,7 @@ int execute_JNS_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool sign = (cpu->status_register & SF) != 0;
     if (!sign)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 7A cb JPE rel8 7+m,3 Jump short if parity even (PF=1)
@@ -901,7 +985,7 @@ int execute_JP_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool parity = (cpu->status_register & PF) != 0;
     if (parity)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;   
+    return EXECUTE_SUCCESS;
 }
 
 // 7B cb JPO rel8 7+m,3 Jump short if parity odd (PF=0)
@@ -911,7 +995,7 @@ int execute_JNP_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool parity = (cpu->status_register & PF) != 0;
     if (!parity)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 7C cb JL rel8 7+m,3 Jump short if less (SF≠OF)
@@ -921,7 +1005,7 @@ int execute_JL_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool is_less = (cpu->status_register & SF) != (cpu->status_register & OF);
     if (is_less)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 7D cb JGE rel8 7+m,3 Jump short if greater or equal (SF=OF)
@@ -931,7 +1015,7 @@ int execute_JGE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool is_greater_equal = (cpu->status_register & SF) == (cpu->status_register & OF);
     if (is_greater_equal)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 
 // 7E cb JLE rel8 7+m,3 Jump short if less or equal (ZF=1 and SF≠OF)
@@ -941,7 +1025,7 @@ int execute_JLE_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool less_or_equal = ((cpu->status_register & ZF) != 0) && ((cpu->status_register & SF) != (cpu->status_register & OF));
     if (less_or_equal)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 }
 // 7F cb JG rel8 7+m,3 Jump short if greater (ZF=0 and SF=OF)
 // 7F cb JNLE rel8 7+m,3 Jump short if not less or equal (ZF=0 and SF=OF)
@@ -950,15 +1034,15 @@ int execute_JG_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     bool greater = ((cpu->status_register & ZF) == 0) && ((cpu->status_register & SF) == (cpu->status_register & OF));
     if (greater)
         return jmp_rel8(cpu, decoded_instr);
-    return 0;
+    return EXECUTE_SUCCESS;
 } 
 
 //=======================================================================================================================================================
 //===============================================================80 - 8F=================================================================================
 
-int execute_IMM_GRP_EB_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_IMM_GRP_EV_LZ   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_IMM_GRP_EV_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
+int execute_IMM_GRP_EB_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_IMM_GRP_EV_LZ   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_IMM_GRP_EV_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
 
 int execute_TEST_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -987,7 +1071,6 @@ int execute_TEST_R32_RM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 int execute_MOV_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
     //printw("\n========Executing MOV_RM8_R8...============\n");
-    uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
     uint32_t reg_src_value = gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8);
 
     if (decoded_instr->mod == 0x3) {
@@ -995,11 +1078,15 @@ int execute_MOV_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
         set_gpr_w_handler(cpu, decoded_instr->rm_field, 8, reg_src_value);
     } else {
         // r/m is memory, write to it
-        bus_write(bus, reg_src_value, effective_addr, 8);
+        uint32_t effective_addr = 0;
+        int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+        if (result != EXECUTE_SUCCESS) { return result; }
+        result = bus_write_checked(bus, reg_src_value, effective_addr, 8);
+        if (result != EXECUTE_SUCCESS) { return result; }
         print_cell((uint8_t)reg_src_value, effective_addr);
     }
     //printw("===================EXECUTE DONE======================\n");
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
@@ -1012,12 +1099,15 @@ int execute_MOV_RM32_R32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
         set_gpr_w_handler(cpu, decoded_instr->rm_field, 32, reg_src_value);
     } else {
         // r/m is memory, write to it
-        uint32_t effective_addr = calculate_EA(cpu, decoded_instr);
-        bus_write(bus, reg_src_value, effective_addr, 32);
+        uint32_t effective_addr = 0;
+        int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+        if (result != EXECUTE_SUCCESS) { return result; }
+        result = bus_write_checked(bus, reg_src_value, effective_addr, 32);
+        if (result != EXECUTE_SUCCESS) { return result; }
         print_dword(reg_src_value, effective_addr);
     }
     //printw("===================EXECUTE DONE======================\n");
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 int execute_MOV_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr)    
@@ -1033,11 +1123,15 @@ int execute_MOV_R8_RM8 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
     else 
     {
         uint32_t from_mem_value = 0;
-        bus_read(bus, &from_mem_value, calculate_EA(cpu, decoded_instr), 8);
+        uint32_t effective_addr = 0;
+        int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+        if (result != EXECUTE_SUCCESS) { return result; }
+        result = bus_read_checked(bus, &from_mem_value, effective_addr, 8);
+        if (result != EXECUTE_SUCCESS) { return result; }
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 8, from_mem_value);
         //printw("Value %x moved to register\n", from_mem_value);
     }
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
 int execute_MOV_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
@@ -1053,14 +1147,18 @@ int execute_MOV_R32_RM32 (BUS *bus, CPU *cpu, Instruction *decoded_instr)
     else 
     {
         uint32_t from_mem_value = 0;
-        bus_read(bus, &from_mem_value, calculate_EA(cpu, decoded_instr), 32);
+        uint32_t effective_addr = 0;
+        int result = calculate_EA(cpu, decoded_instr, &effective_addr);
+        if (result != EXECUTE_SUCCESS) { return result; }
+        result = bus_read_checked(bus, &from_mem_value, effective_addr, 32);
+        if (result != EXECUTE_SUCCESS) { return result; }
         set_gpr_w_handler(cpu, decoded_instr->reg_or_opcode, 32, from_mem_value);
         //printw("Value %x moved to register\n", from_mem_value);
     }
-    return 1;
+    return EXECUTE_SUCCESS;
 }
 
-int execute_LEA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return 0; }
+int execute_LEA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (void)cpu; (void)decoded_instr;return UNIMPLEMENTED_INSTRUCTION; }
 
 //=======================================================================================================================================================
 //===============================================================90 - 9F=================================================================================
@@ -1069,20 +1167,18 @@ int execute_LEA(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void)bus; (vo
 //=======================================================================================================================================================
 //===============================================================A0 - AF=================================================================================
 
-int execute_MOV_AL_MOFFS8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_EAXv_MOFFSv (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_MOFFS8_AL   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_MOFFSv_EAXv (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-
+int execute_MOV_AL_MOFFS8   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_EAXv_MOFFSv (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_MOFFS8_AL   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_MOFFSv_EAXv (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
 
 //=======================================================================================================================================================
 //===============================================================B0 - BF=================================================================================
 
-int execute_MOV_AL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_CL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_DL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-int execute_MOV_R8_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return 0; }  
-
+int execute_MOV_AL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_CL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_DL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_R8_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
 
 int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
@@ -1152,11 +1248,11 @@ int execute_MOV_EDI_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 //=======================================================================================================================================================
 //===============================================================C0 - CF=================================================================================
 
-int execute_GRP2_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_GRP2_EV_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_GRP2_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_GRP2_EV_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 // C2: return near, pop imm16 bytes of parameters
-int execute_RET_NEAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_RET_NEAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 // C3: return (near) to caller
 // take 32-bit return address from the top of the stack as SS:ESP
 // load that value into EIP
@@ -1166,30 +1262,30 @@ int execute_RET_NEAR(BUS *bus, CPU *cpu, Instruction *decoded_instr)
     return pop_gpr(bus, cpu, decoded_instr, EIP);
 }
 
-int execute_LES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_LDS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_MOV_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_MOV_EV_IV(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_ENTER(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_LEAVE(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_LES(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_LDS(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_MOV_EB_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_MOV_EV_IV(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_ENTER(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_LEAVE(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 // CA
-int execute_RET_FAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_RET_FAR_IMM16(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 // CB return (far) to caller
-int execute_RET_FAR(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_RET_FAR(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
-int execute_INT3(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_INT_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_INTO(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
-int execute_IRET(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }
+int execute_INT3(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_INT_IB(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_INTO(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
+int execute_IRET(BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }
 
 //=======================================================================================================================================================
 //===============================================================D0 - DF=================================================================================
 
-int execute_SHIFT_EB_1   (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_SHIFT_EV_1   (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_SHIFT_EB_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
-int execute_SHIFT_EV_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return 0; }    
+int execute_SHIFT_EB_1   (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }    
+int execute_SHIFT_EV_1   (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }    
+int execute_SHIFT_EB_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }    
+int execute_SHIFT_EV_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }    
 
 //=======================================================================================================================================================
 //===============================================================E0 - EF=================================================================================
@@ -1199,7 +1295,9 @@ int execute_SHIFT_EV_CL  (BUS *bus, CPU *cpu, Instruction *decoded_instr) { (voi
 int execute_CALL_REL32    (BUS *bus, CPU *cpu, Instruction *decoded_instr) 
 {
     // the EIP before executing instructions already point to the next instruction
-    push_gpr(bus, cpu, decoded_instr, EIP);
+    int result = push_gpr(bus, cpu, decoded_instr, EIP);
+    if (result != EXECUTE_SUCCESS)
+        return result;
     return jmp_rel32(cpu, decoded_instr);
 }
 
@@ -1279,41 +1377,54 @@ FF /6: PUSH rm16, rm32
 
 int execute_GRP5(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {
-    uint32_t op1 = read_rm_op(bus, cpu, decoded_instr, 32);
-    ALU_out out;
+    uint32_t rm_value = 0;
+    int result = read_rm_op(bus, cpu, decoded_instr, 32, &rm_value);
+    if (result != EXECUTE_SUCCESS)
+        return result;
+
+    ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
     switch(decoded_instr->reg_or_opcode)
     {
-        case 0:
-            ALU(/*op1, base*/op1, 
-                /*op2, none*/0, 
+        case 0: // INC rm32
+            ALU(/*op1, base*/rm_value,
+                /*op2, none*/0,
                             NO_CIN, 32, OPC_INC, &out);
-            write_rm_dst(bus, cpu, decoded_instr, 32, op1, (decoded_instr->mod == 0x3) ? 0 : calculate_EA(cpu, decoded_instr));
-        break;
-        case 1:
-            ALU(/*op1, base*/op1, 
-                /*op2, none*/0, 
+            result = write_rm_dst(bus, cpu, decoded_instr, 32, out.low, NULL);
+            if (result != EXECUTE_SUCCESS)
+                return result;
+            update_status_register(cpu, OPC_INC, out.flags_out);
+            return EXECUTE_SUCCESS;
+
+        case 1: // DEC rm32
+            ALU(/*op1, base*/rm_value,
+                /*op2, none*/0,
                             NO_CIN, 32, OPC_DEC, &out);
-            write_rm_dst(bus, cpu, decoded_instr, 32, op1, (decoded_instr->mod == 0x3) ? 0 : calculate_EA(cpu, decoded_instr));
-        break;
-        case 2:
-            // push the address of instruction following CALL onto the stack, 
+            result = write_rm_dst(bus, cpu, decoded_instr, 32, out.low, NULL);
+            if (result != EXECUTE_SUCCESS)
+                return result;
+            update_status_register(cpu, OPC_DEC, out.flags_out);
+            return EXECUTE_SUCCESS;
+
+        case 2: // CALL rm32
+            // push the address of instruction following CALL onto the stack,
             // THEN jump to the address in rm32
-            uint32_t callback_offset = read_rm_op(bus, cpu, decoded_instr, 32);
-            push_gpr(bus, cpu, decoded_instr, EIP);
-            set_gpr32(cpu, EIP, callback_offset);
-        break;
-        case 4:
+            result = push_gpr(bus, cpu, decoded_instr, EIP);
+            if (result != EXECUTE_SUCCESS)
+                return result;
+            set_gpr32(cpu, EIP, rm_value);
+            return EXECUTE_SUCCESS;
+
+        case 4: // JMP rm32
         {
-            // jump near, absolute indirect: A jump to an instruction within the current code segment 
-                                            // (the segment currently pointed to by the CS register), 
-                                            // sometimes referred to as an intrasegment jump.
-            // relatve jumps are EIP = EIP_after  + sign-extended displacement
-            // indirect jumps are EIP = operand_val
-            uint32_t target_offset =  read_rm_op(bus, cpu, decoded_instr, 32);
-            uint32_t new_addr = cpu->segment_registers[CS].base + target_offset;
-            if ((seg_bounds_check(cpu, new_addr, CS)) == VALID)
-                (get_operand_size(cpu, bus, decoded_instr)) ? set_gpr32(cpu, EIP, target_offset) : set_gpr16(cpu, EIP, target_offset & 0xFFFF);
-            break;
+            uint32_t new_addr = cpu->segment_registers[CS].base + rm_value;
+            result = seg_bounds_check(cpu, new_addr, CS);
+            if (result != EXECUTE_SUCCESS)
+                return result;
+            (get_operand_size(cpu, bus, decoded_instr)) ? set_gpr32(cpu, EIP, rm_value) : set_gpr16(cpu, EIP, rm_value & 0xFFFF);
+            return EXECUTE_SUCCESS;
         }
+
+        default:
+            return UNIMPLEMENTED_INSTRUCTION;
     }
 }

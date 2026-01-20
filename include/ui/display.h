@@ -3,6 +3,6 @@
 #include <ncurses.h>
 
 
-void init_ui();
+int init_ui();
 void destroy_window();
 #endif

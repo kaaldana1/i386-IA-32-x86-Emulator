@@ -62,11 +62,12 @@ static inline bool is_signed(uint32_t result, size_t width)
 /*OF Overflow Flag ── Set if result is too large a positive number
  or too small a negative number (excluding sign-bit) to fit in
  destination operand; cleared otherwise.*/
+ /*overflow occurs when operands have the same sign but result in a different sign*/
  static inline bool is_overflow(uint32_t op1, uint32_t op2, uint32_t result)
  {
-    if (op1 > 0 && op2 > 0 && result < 0) return true; // positive overflow
-    if (op1 < 0 && op2 < 0 && result > 0) return true; // negative overflow
-    return false;
+    uint32_t sign_op1 = op1 ^ result;
+    uint32_t sign_op2 = op2 ^ result;
+    return (sign_op1 & sign_op2 & 0x80000000u) != 0;
  }
 
 /* Set if low-order eight bits of result contain
@@ -112,8 +113,8 @@ static inline void update_potential_flags(Opclass opclass, uint32_t op1, uint32_
         set_AF(out);
 }
 
-static void alu_print(uint32_t op1, uint32_t op2, int cin, ALU_out *out, const char *op)
-{
+// static void alu_print(uint32_t op1, uint32_t op2, int cin, ALU_out *out, const char *op)
+// {
     /*
     //printw("+=====================+\n");            
     //printw("|      ALU ACCESS     |  \n");          
@@ -127,7 +128,7 @@ static void alu_print(uint32_t op1, uint32_t op2, int cin, ALU_out *out, const c
     //printw("|       flags: %08x     |\n",   out->flags_out); 
     //printw("+============================+\n"); 
     */
-}
+//}
 
 
 //========================================EXECUTE FUNCTIONS==============================================
@@ -138,7 +139,7 @@ static int alu_body (Opclass opclass, uint32_t op1, uint32_t op2, int cin, size_
     op2 = op_mask(op2, width);
     expr(op1, op2, cin, out);
     update_potential_flags(opclass, op1, op2, cin, out, width);
-    alu_print(op1, op2, cin, out, name);
+    // alu_print(op1, op2, cin, out, name);
     return 1; 
 }
 
@@ -203,10 +204,10 @@ static inline void expr_SAR(uint32_t op1, uint32_t op2, int cin, ALU_out *out) {
 static inline void expr_ROL(uint32_t op1, uint32_t op2, int cin, ALU_out *out) { out->low = (op1 << 1); }   
 static inline void expr_ROR(uint32_t op1, uint32_t op2, int cin, ALU_out *out) { out->low = (op1 >> 1); }  
 
-#define ALU_FUNCS(op, _value)                                                        \
-static int alu_##op(Opclass opclass, uint32_t op1, uint32_t op2, int cin, size_t width, ALU_out *out) \
-{                                                                                    \
-    return alu_body(opclass, op1, op2, cin, width, out, #op, expr_##op );                      \
+#define ALU_FUNCS(op, _value)                                                                           \
+static int alu_##op(Opclass opclass, uint32_t op1, uint32_t op2, int cin, size_t width, ALU_out *out)   \
+{                                                                                                       \
+    return alu_body(opclass, op1, op2, cin, width, out, #op, expr_##op );                               \
 } 
 FOR_EACH_ARITH_LOGIC_OP(ALU_FUNCS)
 #undef ALU_FUNCS
@@ -217,8 +218,8 @@ int ALU(uint32_t op1, uint32_t op2, int cin,
 {
     switch(opclass) 
     {
-        #define ALU_FUNC_CASE(op, _value) \
-        case OPC_##op: return alu_##op(opclass, op1, op2, cin, width, out); \
+        #define ALU_FUNC_CASE(op, _value)                                                              \
+        case OPC_##op: return alu_##op(opclass, op1, op2, cin, width, out);                            \
         break; 
         FOR_EACH_ARITH_LOGIC_OP(ALU_FUNC_CASE)
         #undef ALU_FUNC_CASE

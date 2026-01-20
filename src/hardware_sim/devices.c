@@ -9,7 +9,9 @@ RAMDev *init_ram(void)
 {
     RAMDev *ram_dev = (RAMDev*)calloc(1, sizeof(RAMDev));
     memset(ram_dev->ram_16kb, 0x00, RAM_SIZE);
-    machine_state.ui_callbacks.ui_set_display_ram_ptr(ram_dev);
+
+    if (ui_on)
+        machine_state.ui_callbacks.ui_set_display_ram_ptr(ram_dev);
     return ram_dev;
 }
 
@@ -25,7 +27,9 @@ VGADev *init_vga(void)
     VGADev *v = (VGADev*)calloc(1, sizeof(VGADev));
     memset(v, 0, sizeof(VGADev));
     v->refresh_rate = 300;
-    machine_state.ui_callbacks.ui_set_display_vga_pointer(v);
+
+    if (ui_on)
+        machine_state.ui_callbacks.ui_set_display_vga_pointer(v);
     return v;
 }
 
@@ -33,7 +37,9 @@ KeyboardDev *init_keyboard()
 {
     KeyboardDev *kb = (KeyboardDev*)calloc(1, sizeof(KeyboardDev));
     memset(kb, 0, sizeof(KeyboardDev));
-    machine_state.ui_callbacks.ui_set_display_keyboard_pointer(kb);
+
+    if (ui_on)
+        machine_state.ui_callbacks.ui_set_display_keyboard_pointer(kb);
     kb->dequeue = dequeue;
     kb->enqueue = enqueue;
     return kb;
@@ -89,7 +95,7 @@ int ram_read_dword(void *ram_dev, uint32_t *value, uint32_t address)
     return 1;
 }
 
-int ram_read(RAMDev *r, uint32_t *value, uint32_t address, size_t width)
+int ram_read(void *r, uint32_t *value, uint32_t address, size_t width)
 {
     RAMDev *ram = r;
     if (address > RAM_SIZE - 4) { return 0; }
@@ -102,17 +108,17 @@ int ram_read(RAMDev *r, uint32_t *value, uint32_t address, size_t width)
     return 1;
 }
 
-int ram_write(RAMDev *r, uint32_t value, uint32_t address, size_t width)
+int ram_write(void *r, uint32_t value, uint32_t address, size_t width)
 {
     RAMDev *ram = r;
 
     if (address > RAM_SIZE - 4) { return 0; }
     if (width == 8) 
-        return ram_write_byte(r, (uint8_t)value, address);
+        return ram_write_byte(ram, (uint8_t)value, address);
     else if (width == 16)
-        return ram_write_word(r, (uint16_t)value, address);
+        return ram_write_word(ram, (uint16_t)value, address);
     else if (width == 32)
-        return ram_write_dword(r, value, address);
+        return ram_write_dword(ram, value, address);
 
     return 1;
 }
@@ -146,13 +152,14 @@ int keyboard_write(void *device, uint32_t data, uint32_t addr, size_t width)
     KeyboardDev *k = device;
     k->read = (uint8_t)data;
     k->status = true;
-    machine_state.ui_callbacks.ui_copy_keyboard_input(k->read);
+    
+    if (ui_on)
+        machine_state.ui_callbacks.ui_copy_keyboard_input(k->read);
     return 1;
 }
 
 int enqueue(uint8_t *buffer, uint8_t data, size_t *keystrokes_in_queue, size_t size)
 {
-    bool buffer_overflow = false;
     if (*keystrokes_in_queue >= size) { return 0; }
     if (*keystrokes_in_queue == 0) { goto insert; }
     for(size_t i = *keystrokes_in_queue; i > 0; i--)
@@ -167,6 +174,7 @@ int enqueue(uint8_t *buffer, uint8_t data, size_t *keystrokes_in_queue, size_t s
 int dequeue(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t size)
 {
     if (*keystrokes_in_queue == 0) { return 0; }
+    if (*keystrokes_in_queue > size) { return 0; }
     *keystrokes_in_queue = *keystrokes_in_queue - 1;
     *data = buffer[*keystrokes_in_queue];
     return 1;

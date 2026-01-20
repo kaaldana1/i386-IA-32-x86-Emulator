@@ -24,6 +24,7 @@ CPPFLAGS ?= -Iinclude
 CFLAGS   ?= $(CSTD) -Wall -Wextra -Wpedantic -g -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -DNCURSES_ON
 LDFLAGS  ?=
 LDLIBS   ?= -lncursesw
+LOG      ?= log.txt
 
 # --- Paths & target ---
 SRC_DIR   := src
@@ -61,14 +62,17 @@ MKDIR_P  := mkdir -p
 
 .PHONY: all clean run
 
-all: $(BIN)
+all: $(LOG) $(BIN)
 
 $(BIN): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS) 2>>$(LOG)
 
 $(BUILD_DIR)/%.o: %.c
 	@$(MKDIR_P) $(BUILD_DIR)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@ 2>>$(LOG)
+
+$(LOG):
+	@ : >$(LOG)
 
 run: $(BIN)
 	./$(BIN)

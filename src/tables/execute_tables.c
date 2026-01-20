@@ -1,3 +1,4 @@
+#include "ids/return_code_list.h"
 #include "tables/execute_tables.h"
 #include "core/executor.h"
 #include "ids/opcode_list.h"
@@ -6,7 +7,7 @@
 static int noop(BUS *bus, CPU *cpu, Instruction *instr) 
 {
     (void)bus; (void)cpu; (void)instr;
-    return 1; // no-op
+    return UNIMPLEMENTED_INSTRUCTION;
 }
 
 // start with all entries pointing to the default
@@ -21,7 +22,7 @@ static void init_execution_handler_lut(void)
 
 // if the handler actually exists, add it to the table
 static void patch_execution_table(void) {
-#define X(name, op_byte, _2, _3, _4, _5, _6, _7)          \
+#define X(name, op_byte, _2, _3, _4, _5, _6, _7)              \
     do {                                                      \
         if (execute_##name)                                   \
             execution_handler_lut[(unsigned)(op_byte)] =      \

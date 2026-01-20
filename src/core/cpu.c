@@ -1,12 +1,13 @@
 #include "core/cpu.h"
 #include "core/int_utils.h"
 #include "ui/display_api.h"
+#include "ids/return_code_list.h"
 #include "core/interrupt/interrupt_controller.h"
 #include "core/interrupt/interrupt_handlers.h"
 
 #define MAX_INSTR_LENGTH 16
 
-int set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
+static void set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
     uint16_t index = get_SegmentRegister_index(&cpu->segment_registers[type]); // gets index bits from selector
     uint64_t desc = get_descriptor(bus, &cpu->gdtr, index); 
@@ -45,7 +46,7 @@ int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t gdtr_base, uint32_t gd
 
 static void to_byte_array(uint32_t *dword_arr, uint8_t *byte_arr) 
 {
-    memset(byte_arr, 0x00, MAX_INSTR_LENGTH );
+    memset(byte_arr, 0x00, MAX_INSTR_LENGTH);
     int byte_index = 0;
     int dword_index = 0;
     int shift = 0;
@@ -72,7 +73,7 @@ static int prefetch (BUS *bus, uint32_t *queue, uint32_t addr)
     memset(queue, 0, (MAX_INSTR_LENGTH / 4) * sizeof(uint32_t));
     for(size_t i = 0; i < MAX_INSTR_LENGTH / 4; i++)  // reads four dwords (16 bytes)
     {
-        bus_read(bus, (queue + i), addr + i*4, 32);
+        if (bus_read(bus, (queue + i), addr + i*4, 32) != EXECUTE_SUCCESS) { return BUS_READ_FAILURE; }
     }
     return 1;
 }
@@ -91,14 +92,20 @@ static void tick(Clock *clock)
     *clock = *clock + 1;
 }
 
-static void reset_clock(Clock *clock)
+// static void reset_clock(Clock *clock)
+// {
+    // *clock = 0;
+// }
+
+static int check_instr(Instruction *instr)
 {
-    *clock = 0;
+    if (instr == NULL) { free(instr); return BAD_DECODE; }
+    if (instr->total_length == 0) { free(instr); return BAD_DECODE; }
+    if (instr->opcode[0] >= MAX_INSTRUCTIONS) { free(instr); return BAD_DECODE; }
 }
 
 int interpreter(CPU *cpu, BUS *bus, Clock *clock) 
 {
-
     execute_pending_interrupts();
     uint32_t start_addr;
     uint32_t CS_base = cpu->segment_registers[CS].base;
@@ -106,27 +113,31 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
 
     uint32_t instr_queue[MAX_INSTR_LENGTH / 4];
     uint8_t byte_instr_queue[MAX_INSTR_LENGTH];
-    // TODO: change this to a conditional and move while loop up a layer (machine loop not interpreter loop)
-    // will continue to loop while computer is on, not when the program ends
-    if (!(address_translator(cpu, CS, EIP) < (CS_base + CS_limit)) || (cpu->halt))
-        return 0;
-    // TODO: execute_pending_interrupts stay here
+
+    if (!(address_translator(cpu, CS, EIP) < (CS_base + CS_limit)) || (cpu->halt)) { return END_OF_PROGRAM; }
+
     start_addr = address_translator(cpu, CS, EIP);
-    prefetch(bus, instr_queue, start_addr);
+    if (prefetch(bus, instr_queue, start_addr) == BUS_READ_FAILURE) { return BUS_READ_FAILURE; }
     to_byte_array(instr_queue, byte_instr_queue);
+
     Instruction *decoded_instruction = decoder(byte_instr_queue);
+    if (check_instr(decoded_instruction) == BAD_DECODE) { return BAD_DECODE; }
 
     cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;
 
-    machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
+    int result = (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+    if (result < 0) { free(decoded_instruction); return result; }
 
-    (*execution_handler_lut[decoded_instruction->opcode[0]])(bus, cpu, decoded_instruction);
+    if (ui_on)
+    {
+        machine_state.ui_callbacks.ui_copy_instr_after_decode(decoded_instruction);
+        machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
+        machine_state.ui_callbacks.ui_reset_stack_after_execute();
+    }
 
-
-    machine_state.ui_callbacks.ui_copy_cpu_after_execute(cpu);
-    machine_state.ui_callbacks.ui_reset_stack_after_execute();
     tick(clock);
-    
-    return 1;
+
+    free(decoded_instruction);   
+    return EXECUTE_SUCCESS;
 }
 

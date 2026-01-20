@@ -7,6 +7,7 @@ typedef int(*keyboard_enqueue)(uint8_t *buffer, uint8_t data, size_t *keystrokes
 typedef int (*keyboard_dequeue)(uint8_t *buffer, uint8_t *data, size_t *keystrokes_in_queue, size_t size);
 
 typedef void(*interrupt_line)(IRQNumber irq_num);
+
 typedef struct Interrupter Interrupter;
 struct Interrupter {
     interrupt_line interrupt_line;

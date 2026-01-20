@@ -9,9 +9,9 @@ typedef struct
     VGADev *vga_dev;
     KeyboardDev *keyboard;
     BUS *bus;
-} Devices; /*should be changed to be dynamic*/
+} Devices; 
 
-Devices devices = {NULL, NULL};
+Devices devices = {NULL, NULL, NULL};
 
 void keyboard_handler();
 void vga_handler();
@@ -40,7 +40,8 @@ void keyboard_handler()
 
 void vga_handler()
 {
-    machine_state.ui_callbacks.ui_update_screen();
+    if (ui_on)
+        machine_state.ui_callbacks.ui_update_screen();
 }
 
 

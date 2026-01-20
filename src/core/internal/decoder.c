@@ -114,7 +114,7 @@ static void decode_prefix(Instruction *decoded_instr, Cursor *cursor)
 static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
 {
     uint8_t return_p = cursor->byte_p;
-    while (cursor->byte_p < MAX_OPCODE_LENGTH + return_p)
+    while (cursor->byte_p < (size_t)MAX_OPCODE_LENGTH + return_p)
     {
         // use lookup table
         if (!(cursor->encoded_instr[cursor->byte_p] == MULT_BYTE_FLAG))
@@ -237,7 +237,7 @@ Instruction *decoder(uint8_t *encoded_instr)
 
 
     Instruction *decoded_instr = calloc(1, sizeof(Instruction));
-    if (decoded_instr == NULL) { exit(1); }
+    if (decoded_instr == NULL) { return NULL; }
 
     Cursor cursor = (Cursor){encoded_instr, 0};
 

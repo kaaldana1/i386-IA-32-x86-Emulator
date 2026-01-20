@@ -40,6 +40,7 @@ void bus_destroy(BUS *bus)
 
 int bus_register(BUS *bus, uint32_t base, uint32_t size, read_func reader, write_func writer, void *device) 
 {
+    if (bus->count >= bus->map_size) { return 0; }
     bus->map[bus->count++] = (addr_table_entry){.base = base, .size = size, .read = reader, .write = writer, .device = device};
     return 1;
 }
@@ -50,11 +51,10 @@ int bus_read(BUS *bus, uint32_t *data, uint32_t addr, size_t width)
     size_t i = 0;
     while (i < bus->count) 
     {
-        if (bus->map[i].base <= addr 
-            && bus->map[i].size + bus->map[i].base > addr) 
-            {
-                if (bus->map[i].read(bus->map[i].device, data, addr, width)) { return READ_SUCCESS; }
-            }
+        if (bus->map[i].base <= addr && bus->map[i].size + bus->map[i].base > addr) 
+        {
+            if (bus->map[i].read(bus->map[i].device, data, addr, width)) { return READ_SUCCESS; }
+        }
         i++;
     }
     return READ_FAIL;

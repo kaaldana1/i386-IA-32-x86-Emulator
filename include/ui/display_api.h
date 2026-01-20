@@ -1,6 +1,8 @@
 #include "core/structs/instruction.h" 
 #include "machine/program_loader.h" 
 
+extern bool ui_on;
+
 typedef struct CPU CPU;
 typedef struct RAMDev RAMDev;
 typedef struct VGADev VGADev;

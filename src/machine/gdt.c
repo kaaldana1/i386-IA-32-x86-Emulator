@@ -22,8 +22,7 @@
 #define KERNEL_DATA_RW   (PRESENT | DESC_DPL0 | SEG_DESCTYPE(1) | RW)   //0x92
 #define STACK            (PRESENT | DESC_DPL0 | SEG_DESCTYPE(1) | RW)   //0x92
 
-inline static uint64_t create_descriptor(uint32_t base, uint32_t limit, 
-                                         uint8_t access, uint8_t flags) 
+inline static uint64_t create_descriptor(uint32_t base, uint32_t limit, uint8_t access, uint8_t flags) 
 {
     uint64_t base_low = (uint64_t)base & 0xFFFF;
     uint64_t base_mid = ((uint64_t) base >> 16) & 0xFF;
@@ -39,18 +38,18 @@ inline static int create_gdt_entry(BUS *bus,  uint32_t addr, uint64_t descriptor
 {
     uint32_t low = (uint32_t)(descriptor & 0xFFFFFFFF); // limit low, base low
     uint32_t high = (uint32_t)((descriptor >> 32) & 0xFFFFFFFF); // base mid, access byte, flag (4 bits), limit high (4 bits), base high
-    bus_write(bus, low, addr, 32);
-    bus_write(bus, high, addr + 4, 32);
+    if (!bus_write(bus, low, addr, 32)) { return 0; }
+    if (!bus_write(bus, high, addr + 4, 32)) { return 0; }
     return 1;
 }
 
 int create_gdt(BUS *bus, uint32_t table_addr) 
 {
-    create_gdt_entry(bus, table_addr, create_descriptor(0, 0, 0x00, 0x00)); // null descriptor
-    create_gdt_entry(bus, (table_addr + 8), create_descriptor (0x0000, 0x07FF, KERNEL_CODE_RX, 0x04));
-    create_gdt_entry(bus, (table_addr + 16), create_descriptor(0x0800, 0x07FF, USER_CODE_RX, 0x04));
-    create_gdt_entry(bus, (table_addr + 24), create_descriptor(0x1000, 0x27FF, USER_DATA_RW, 0x04));
-    create_gdt_entry(bus, (table_addr + 32), create_descriptor(0x1800, 0x27FF, STACK, 0x04));
+    if (!create_gdt_entry(bus, table_addr, create_descriptor(0, 0, 0x00, 0x00))) { return 0; } // null descriptor
+    if (!create_gdt_entry(bus, (table_addr + 8), create_descriptor (0x0000, 0x07FF, KERNEL_CODE_RX, 0x04))) { return 0; }
+    if (!create_gdt_entry(bus, (table_addr + 16), create_descriptor(0x0800, 0x07FF, USER_CODE_RX, 0x04))) { return 0; }
+    if (!create_gdt_entry(bus, (table_addr + 24), create_descriptor(0x1000, 0x27FF, USER_DATA_RW, 0x04))) { return 0; }
+    if (!create_gdt_entry(bus, (table_addr + 32), create_descriptor(0x1800, 0x27FF, STACK, 0x04))) { return 0; }
     return 1;
 }
 

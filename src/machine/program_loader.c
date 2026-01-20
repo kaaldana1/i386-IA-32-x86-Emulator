@@ -34,7 +34,8 @@ static int parse_file(Program *program)
 
     uint8Buffer tmp = {0};
 
-    int i, each;
+    int i;
+    uint8_t each;
     size_t bytes = 0;
     int offset = 0;
 
@@ -55,7 +56,9 @@ static int parse_file(Program *program)
 
     memcpy(program->arr, tmp.arr, bytes);
     program->size = bytes;
-    machine_state.ui_callbacks.ui_set_program_pointer(program);
+    
+    if (ui_on)
+        machine_state.ui_callbacks.ui_set_program_pointer(program);
 
     free(tmp.arr);
     return 1;
@@ -95,7 +98,6 @@ int load_program(BUS *bus, Program *program, uint32_t code_addr)
     {
         uint32_t remainder_dword = 0; 
         uint32_t final_addr = code_addr + offset;
-        int remaining_bytes;
         int shift = 0;
         while (offset < program->size) 
         {

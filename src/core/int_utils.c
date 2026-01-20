@@ -8,7 +8,7 @@ uint16_t get_SegmentRegister_index(const SegmentRegister *reg)
 
 uint64_t get_descriptor(BUS *bus, GDTR *gdtr, uint16_t index) 
 {
-    if ((index * GDT_DESC_SIZE) + 7 > gdtr->size) { return 0; }
+    if (((size_t)index * (size_t)GDT_DESC_SIZE) + (size_t)GDT_DESC_SIZE - 1 > gdtr->size) { return 0; }
     uint32_t low, high;
     bus_read(bus, &low, gdtr->base + index * GDT_DESC_SIZE, 32);
     bus_read(bus, &high, gdtr->base + (index * GDT_DESC_SIZE) + 4, 32);

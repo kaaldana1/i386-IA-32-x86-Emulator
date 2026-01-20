@@ -117,32 +117,32 @@ typedef enum
     GREEN_WHITE
 } MY_COLOR_PAIRS;
 
-static void print_word_binary(int win_num, int y_offset, int x_offset, char *print_buff);
+// static void print_word_binary(int win_num, int y_offset, int x_offset, char *print_buff);
 static void print_byte_binary(int win_num, int y_offset, int x_offset, char *print_buff);
 static void print_decoder_field(uint8_t *field, size_t field_size, int y_offset, int x_offset);
 static void reset_decoder_window();
 static void reset_memory_window();
-static void setup_clock_window();
+// static void setup_clock_window();
 static void setup_register_window();
 static void setup_decoder_window();
 static void setup_memory_window();
 static void setup_instruction_window();
-static void update_time_window();
+static void setup_screen_window();
+static void setup_program_window();
+static void setup_keyboard_window();
+// static void update_time_window();
 static void update_instruction_window();
 static void update_register_window();
 static void update_decoder_window();
 static void update_memory_window();
-static void setup_screen_window();
 static void update_stack();
 static void draw_cell(int, int, uint16_t);
 static void update_screen_window();
-static void setup_program_window();
 static void update_program_prev();
 static void draw_partition_line(WINDOW *win, int x, int height);
 static void create_table(WINDOW *win, int y0, int x0, int rows, int cols, int cell_w, int cell_h, const char *title);
 void sleep_ms(long ms);
 static void update_keyboard_window();
-static setup_keyboard_window();
 
 typedef struct 
 {
@@ -236,7 +236,7 @@ void cb_copy_keyboard_input(uint8_t key)
     ui_state.keyboard_input = key;
 }
 
-void cb_set_display_ram_pointer(RAMDev *ram) 
+void cb_set_display_ram_pointer(const RAMDev *ram) 
 {
     ui_state.ram = ram->ram_16kb;
 }
@@ -327,7 +327,7 @@ void cb_flush_ui()
 
 }
 
-void init_ui() 
+int init_ui() 
 {
     initscr();
     cbreak(); // exits out on ctrl+c
@@ -337,20 +337,25 @@ void init_ui()
     refresh();
 
     start_color();
-    init_pair(1, COLOR_CYAN, COLOR_BLACK);
-    init_pair(2, COLOR_MAGENTA, COLOR_BLACK);
-    init_pair(3, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(4, COLOR_GREEN, COLOR_BLACK);
-    init_pair(5, COLOR_RED, COLOR_BLACK);
-    init_pair(6, COLOR_WHITE, COLOR_BLACK);
-    init_pair(7, COLOR_BLUE, COLOR_BLACK);
-    init_pair(8, COLOR_BLACK, COLOR_WHITE);
-    init_pair(9, COLOR_GREEN, COLOR_WHITE);
+    init_pair(CYAN_BLACK, COLOR_CYAN, COLOR_BLACK);
+    init_pair(MAGENTA_BLACK, COLOR_MAGENTA, COLOR_BLACK);
+    init_pair(YELLOW_BLACK, COLOR_YELLOW, COLOR_BLACK);
+    init_pair(GREEN_BLACK, COLOR_GREEN, COLOR_BLACK);
+    init_pair(RED_BLACK, COLOR_RED, COLOR_BLACK);
+    init_pair(WHITE_BLACK, COLOR_WHITE, COLOR_BLACK);
+    init_pair(BLUE_BLACK, COLOR_BLUE, COLOR_BLACK);
+    init_pair(BLACK_WHITE, COLOR_BLACK, COLOR_WHITE);
+    init_pair(GREEN_WHITE, COLOR_GREEN, COLOR_WHITE);
 
     for (int i = 0; i < WINDOW_COUNT; i++)
     {
         const WindowLayout *layout = &window_layouts[i];
         ui_state.windows[i] = newwin(layout->height, layout->width, layout->y_offset, layout->x_offset);
+        if (ui_state.windows[i] == NULL)
+        {
+            destroy_window();
+            return 0;
+        }
     }
 
     keypad(ui_state.windows[0], TRUE);
@@ -369,21 +374,39 @@ void init_ui()
     setup_screen_window();
     setup_program_window();
     setup_keyboard_window();
-    
-    machine_state.ui_callbacks.ui_copy_instr_after_decode = cb_copy_instr_after_decode;
-    machine_state.ui_callbacks.ui_copy_cpu_after_execute = cb_copy_cpu_after_execute;
-    machine_state.ui_callbacks.ui_copy_mem_after_execute = cb_copy_mem_after_execute;
-    machine_state.ui_callbacks.ui_set_display_ram_ptr = cb_set_display_ram_pointer;
-    machine_state.ui_callbacks.ui_set_display_vga_pointer = cb_set_display_vga_pointer;
-    machine_state.ui_callbacks.ui_set_display_keyboard_pointer = cb_set_display_keyboard_pointer;
-    machine_state.ui_callbacks.ui_set_program_pointer = cb_set_program_pointer;
-    machine_state.ui_callbacks.ui_flush_ui = cb_flush_ui;
-    machine_state.ui_callbacks.ui_reset_stack_after_execute = cb_reset_stack_after_execute;
-    machine_state.ui_callbacks.ui_copy_keyboard_input = cb_copy_keyboard_input;
-    machine_state.ui_callbacks.ui_update_screen = cb_update_screen;
+
+    UI_Callbacks *cb = &(machine_state.ui_callbacks);
+
+    *cb = (UI_Callbacks){
+        .ui_copy_instr_after_decode = cb_copy_instr_after_decode,
+        .ui_copy_cpu_after_execute = cb_copy_cpu_after_execute,
+        .ui_copy_mem_after_execute = cb_copy_mem_after_execute,
+        .ui_set_display_ram_ptr = cb_set_display_ram_pointer,
+        .ui_set_display_vga_pointer = cb_set_display_vga_pointer,
+        .ui_set_display_keyboard_pointer = cb_set_display_keyboard_pointer,
+        .ui_set_program_pointer = cb_set_program_pointer,
+        .ui_flush_ui = cb_flush_ui,
+        .ui_reset_stack_after_execute = cb_reset_stack_after_execute,
+        .ui_copy_keyboard_input = cb_copy_keyboard_input,
+        .ui_update_screen = cb_update_screen,
+    };
+
+    if (cb->ui_copy_instr_after_decode == NULL || cb->ui_copy_cpu_after_execute == NULL ||
+        cb->ui_copy_mem_after_execute == NULL || cb->ui_set_display_ram_ptr == NULL ||
+        cb->ui_set_display_vga_pointer == NULL || cb->ui_set_display_keyboard_pointer == NULL ||
+        cb->ui_set_program_pointer == NULL || cb->ui_flush_ui == NULL ||
+        cb->ui_reset_stack_after_execute == NULL || cb->ui_copy_keyboard_input == NULL ||
+        cb->ui_update_screen == NULL)
+    {
+        return 0;
+    }
+
+    return 1;
+
 }
 
-void destroy_window() {
+void destroy_window() 
+{
     for (int i = 0; i < WINDOW_COUNT; i++)
         delwin(ui_state.windows[i]);
     endwin();
@@ -436,7 +459,7 @@ static void create_registers_table()
     int sr_header_x_offset          = (objects[REGISTER_TABLE_AREA].x_pos + 2)  + (STATUS_FIELD_X_POS)   * objects[REGISTER_TABLE_ENTRY].width;
 
     // header, bottom horizontal at y = 5
-    for (int i = 0; i < objects[REGISTER_TABLE_AREA].width; i++)
+    for (size_t i = 0; i < objects[REGISTER_TABLE_AREA].width; i++)
     {
         if (i == 0) mvwprintw(ui_state.windows[WINDOW_REGISTERS], header_text_y_offset, gen_header_x_offset, "GPR");
         else if (i == 1) mvwprintw(ui_state.windows[WINDOW_REGISTERS], header_text_y_offset, seg_header_x_offset, "SR");
@@ -458,17 +481,17 @@ static void create_registers_table()
     for (int i = 0; i < gpr_amount - 1;  i++) 
     {
 
-        if (gpr_names[i] == "EIP" ) 
+        if (strcmp(gpr_names[i], "EIP") == 0) 
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset, " %-8s ", gpr_names[i]);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset, " CODE_PTR ");
         }
-        else if (gpr_names[i] == "ESP")
+        else if (strcmp(gpr_names[i], "ESP") == 0)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset, " %-8s ", gpr_names[i]);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset, " STACK_PTR ");
         }
-        else if (gpr_names[i] == "EDI")
+        else if (strcmp(gpr_names[i], "EDI") == 0)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*4, gen_header_x_offset, " %-8s ", gpr_names[i]);
         }
@@ -569,10 +592,10 @@ static void setup_decoder_window()
 
 
     char *mod_and_sib_field_names[] = {"Scale:", "Index:", "Base:", "Mod:", "Reg:", "RM:"};
-    for (int i = 0; i < (sizeof(mod_and_sib_field_names) / sizeof(mod_and_sib_field_names[0])); i++)
+    for (size_t i = 0; i < (sizeof(mod_and_sib_field_names) / sizeof(mod_and_sib_field_names[0])); i++)
     {
-        if (i < 3) mvwprintw(ui_state.windows[WINDOW_DECODER], objects[DECODER_SIB_BOX].y_pos + i + 1, objects[DECODER_SIB_BOX].x_pos + 1, mod_and_sib_field_names[i]);
-        else  mvwprintw(ui_state.windows[WINDOW_DECODER], objects[DECODER_MOD_BOX].y_pos + i - 2, objects[DECODER_SIB_BOX].x_pos + 1, mod_and_sib_field_names[i]);
+        if (i < 3) mvwprintw(ui_state.windows[WINDOW_DECODER], objects[DECODER_SIB_BOX].y_pos + i + 1, objects[DECODER_SIB_BOX].x_pos + 1, "%s", mod_and_sib_field_names[i]);
+        else  mvwprintw(ui_state.windows[WINDOW_DECODER], objects[DECODER_MOD_BOX].y_pos + i - 2, objects[DECODER_SIB_BOX].x_pos + 1, "%s", mod_and_sib_field_names[i]);
     }
 
     mvwprintw(ui_state.windows[WINDOW_DECODER], objects[DECODER_MOD_BOX].y_pos + 6, objects[DECODER_MOD_BOX].x_pos + 1, "Instruction Length:");
@@ -583,7 +606,7 @@ static void setup_decoder_window()
 
 static void print_decoder_field(uint8_t *field, size_t field_size, int y_offset, int x_offset)
 {
-    for (int i = 0; i < field_size; i++)
+    for (size_t i = 0; i < field_size; i++)
         mvwprintw(ui_state.windows[WINDOW_DECODER], y_offset, x_offset + 3*i, "%02x", field[i]);
 }
 
@@ -612,7 +635,7 @@ static void update_decoder_window()
     uint8_t *fields[] = { &ui_state.decoded_instr.prefix, &ui_state.decoded_instr.opcode, &ui_state.decoded_instr.modrm, &ui_state.decoded_instr.immediate, &ui_state.decoded_instr.displacement };
     uint8_t op_index = 1; uint8_t mod_index = 2;
 /*hallo*/
-    for (int i = 0; i < (sizeof(fields)/sizeof(fields[0])); i++)
+    for (size_t i = 0; i < (sizeof(fields)/sizeof(fields[0])); i++)
     {
         //dumb code but its pretty fun
         uint8_t op_or_mod = ((op_index | mod_index) & i);
@@ -628,7 +651,7 @@ static void update_decoder_window()
                                     ui_state.decoded_instr.base, ui_state.decoded_instr.mod, 
                                     ui_state.decoded_instr.reg_or_opcode, ui_state.decoded_instr.rm_field};
 
-    for (int i = 0; i < sizeof(mod_and_sib_fields); i++)
+    for (size_t i = 0; i < sizeof(mod_and_sib_fields); i++)
     {
         full_hex_to_binary(mod_and_sib_fields[i], print_buff);
         if (i < 3) print_byte_binary(WINDOW_DECODER, objects[DECODER_SIB_BOX].y_pos + 1 + i, objects[DECODER_SIB_BOX].x_pos + 8, print_buff);
@@ -760,7 +783,7 @@ static void setup_screen_window()
     const int pixel_art_start_y = 1;
     const int pixel_art_start_x = 2;
     const int pixel_art_height = 22;
-    const int pixel_art_width =  60;
+    // const int pixel_art_width =  60;
 
     const char *screen_art[] =   
     {
@@ -816,7 +839,7 @@ static void draw_cell(int x, int y, uint16_t value)
     uint8_t attribute = (uint8_t)(value >> 8);
     if (attribute >= 1 && attribute <= 9) wattron(win_screen, COLOR_PAIR(attribute));
     mvwprintw(win_screen, objects[SCREEN_DRAWABLE_AREA].y_pos + y, objects[SCREEN_DRAWABLE_AREA].x_pos + x, "%c", (char)c);
-    if (attribute < 0 && attribute >= 9) wattroff(win_screen, COLOR_PAIR(attribute));
+    if (attribute >= 9) wattroff(win_screen, COLOR_PAIR(attribute));
 }
 
 
@@ -863,13 +886,12 @@ static void draw_matrix()
 static void repopulate_matrix()
 {
     memset(ui_state.preview_matrix, 0, (size_t)ui_state.pm_rows * ui_state.pm_cols);
-    int bytes_in_matrix = 0;
     
     for (int row = 0; row < ui_state.pm_rows; row++)
     {
         for (int col = 0; col < ui_state.pm_cols; col++)
         {
-            if (ui_state.program_cursor < 0 || (size_t)ui_state.program_cursor >= ui_state.program->size)  goto done;
+            if ((size_t)ui_state.program_cursor >= ui_state.program->size)  goto done;
             *get_matrix_index(row, col) = ui_state.program->arr[ui_state.program_cursor++];
         }
     }
@@ -909,7 +931,7 @@ static void setup_program_window()
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //======================================================================KEYBOARD====================================================================
 
-static setup_keyboard_window()
+static void setup_keyboard_window()
 {
     werase(ui_state.windows[WINDOW_KEYBOARD]);
     box(ui_state.windows[WINDOW_KEYBOARD], 0, 0);
@@ -1019,13 +1041,13 @@ static void draw_partition_line(WINDOW *win, int x, int height)
     mvwhline(win, height - 1, x, ACS_BTEE, 1);
 }
 
-static void print_word_binary(int win_num, int y_offset, int x_offset, char *print_buff)
-{
-    for (int i = 0; i < 16; i++)
-    {
-        mvwprintw(ui_state.windows[win_num], y_offset, x_offset + i, "%i", (int)print_buff[16+i]);
-    }
-}
+// static void print_word_binary(int win_num, int y_offset, int x_offset, char *print_buff)
+// {
+//     for (int i = 0; i < 16; i++)
+//     {
+//         mvwprintw(ui_state.windows[win_num], y_offset, x_offset + i, "%i", (int)print_buff[16+i]);
+//     }
+// }
 
 static void print_byte_binary(int win_num, int y_offset, int x_offset, char *print_buff)
 {
