@@ -3,5 +3,5 @@
 *.dSYM
 *.DS_Store
 .VSCodeCounter/
-.vscode
+.vscode/
 log.txt
