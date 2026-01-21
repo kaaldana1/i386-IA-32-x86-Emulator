@@ -2,3 +2,6 @@
 *.o
 *.dSYM
 *.DS_Store
+.VSCodeCounter/
+.vscode
+log.txt
