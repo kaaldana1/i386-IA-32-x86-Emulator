@@ -1,38 +1,42 @@
-# Use Bash for recipes
-SHELL := /usr/bin/bash
+SHELL := /bin/bash
 
-# If CC is still Make's built-in default (usually 'cc'), choose a real compiler.
-ifeq ($(origin CC), default)
-  ifneq ($(shell command -v clang 2>/dev/null),)
-    CC := clang
-  else ifneq ($(shell command -v gcc 2>/dev/null),)
-    CC := gcc
-  else
-    $(error No C compiler found in PATH. Install one (see notes below) or run: make CC=<path-to-compiler>)
-  endif
-endif
+UNAME_S := $(shell uname -s 2>/dev/null)
 
-# Executable suffix on Windows
 EXEEXT ?=
 ifeq ($(OS),Windows_NT)
   EXEEXT := .exe
 endif
 
-# --- Flags (GCC/Clang) ---
+# If CC not explicitly set by user, pick a working compiler.
+ifeq ($(origin CC), default)
+  CC := $(firstword \
+        $(shell command -v clang 2>/dev/null) \
+        $(shell command -v gcc   2>/dev/null))
+  ifeq ($(strip $(CC)),)
+    $(error No C compiler found in PATH. Install Xcode CLT (mac) or build-essential (Linux) or set CC=<path-to-compiler>)
+  endif
+endif
+
 CSTD     ?= -std=c11
 CPPFLAGS ?= -Iinclude
 CFLAGS   ?= $(CSTD) -Wall -Wextra -Wpedantic -g -O0 -DDEBUG -fno-omit-frame-pointer -fno-inline -DNCURSES_ON
 LDFLAGS  ?=
-LDLIBS   ?= -lncursesw
 LOG      ?= log.txt
 
-# --- Paths & target ---
+# macOS: -lncurses
+# Linux/WSL: -lncursesw
+LDLIBS   ?=
+ifeq ($(UNAME_S),Darwin)
+  LDLIBS += -lncurses
+else
+  LDLIBS += -lncursesw
+endif
+
 SRC_DIR   := src
 BUILD_DIR := build
 BIN_NAME  := c
 BIN       := $(BIN_NAME)$(EXEEXT)
 
-# Search paths for sources (flat build dir)
 VPATH := \
   $(SRC_DIR):\
   $(SRC_DIR)/core:\
@@ -59,8 +63,8 @@ SRCS := \
 
 OBJS := $(addprefix $(BUILD_DIR)/,$(notdir $(SRCS:.c=.o)))
 
-RM       := rm -rf
-MKDIR_P  := mkdir -p
+RM      := rm -rf
+MKDIR_P := mkdir -p
 
 .PHONY: all clean run
 

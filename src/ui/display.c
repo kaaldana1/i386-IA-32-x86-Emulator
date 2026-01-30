@@ -248,7 +248,7 @@ void cb_set_program_pointer(Program *p)
     update_program_prev();
 }
 
-void cb_set_display_vga_pointer(VGADev *vga)
+void cb_set_display_vga_pointer(const struct VGADev *vga)
 {
     ui_state.vga = vga;
 }

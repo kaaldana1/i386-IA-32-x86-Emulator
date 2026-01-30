@@ -16,7 +16,6 @@ static void set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType ty
     cpu->segment_registers[type].base = get_base(desc);
     cpu->segment_registers[type].limit = get_limit(desc);
     cpu->segment_registers[type].flag = get_flag(desc);
-    return 1;
 }
 
 CPU *create_cpu(void) 
