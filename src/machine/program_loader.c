@@ -37,7 +37,7 @@ static int parse_file(Program *program)
     uint8Buffer tmp = {0};
 
     int i;
-    uint8_t each;
+    unsigned int each;
     size_t bytes = 0;
     int offset = 0;
 

@@ -19,15 +19,18 @@ static void init_execution_handler_lut(void)
         execution_handler_lut[i] = noop;
 }
 
+#define X(name, _op_byte, _2, _3, _4, _5, _6, _7) \
+__attribute__((weak)) \
+int execute_##name(BUS *bus, CPU *cpu, Instruction *instr) { \
+    (void)bus; (void)cpu; (void)instr; \
+    return UNIMPLEMENTED_INSTRUCTION; \
+}
+FOREACH_OPCODE(X)
+#undef X
 
-// if the handler actually exists, add it to the table
 static void patch_execution_table(void) {
-#define X(name, op_byte, _2, _3, _4, _5, _6, _7)              \
-    do {                                                      \
-        if (execute_##name)                                   \
-            execution_handler_lut[(unsigned)(op_byte)] =      \
-                execute_##name;                               \
-    } while (0); 
+#define X(name, op_byte, _2, _3, _4, _5, _6, _7) \
+    execution_handler_lut[(unsigned)(op_byte)] = execute_##name;
     FOREACH_OPCODE(X)
 #undef X
 }
