@@ -12,6 +12,7 @@ the standard pipeline--fetch, decode, execution-- and it also includes:
 An emphasis was made on behavior closely reflecting hardware and deterministic execution, allowing interactive programs and experimentation at a low level.
 
 For more information, please view the documentation linked below:
+[i386 Documentation](https://www.dropbox.com/scl/fi/vqe0mvkwmbr20an8nkyhh/i386-Documentation.pdf?rlkey=yp1v6flpy0obzvwiv8hspm0et&st=vm8mrros&dl=0)
 
 ### Dependencies
 - C compiler with C11 support
