@@ -34,6 +34,7 @@ BIN       := $(BIN_NAME)$(EXEEXT)
 
 # Search paths for sources (flat build dir)
 VPATH := \
+  $(SRC_DIR):\
   $(SRC_DIR)/core:\
   $(SRC_DIR)/core/structs:\
   $(SRC_DIR)/core/internal:\
@@ -45,6 +46,7 @@ VPATH := \
   $(SRC_DIR)/tables
 
 SRCS := \
+  $(wildcard $(SRC_DIR)/*.c) \
   $(wildcard $(SRC_DIR)/core/*.c) \
   $(wildcard $(SRC_DIR)/core/internal/*.c) \
   $(wildcard $(SRC_DIR)/core/structs/*.c) \

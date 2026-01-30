@@ -14,6 +14,7 @@
 #define OPC_THROW_RESULT_MASK ( OPC_CMP | OPC_TEST )
 #define OPC_USES_CARRY_MASK (OPC_ADD | OPC_ADC | OPC_INC | OPC_MUL | OPC_IMUL )
 #define OPC_USES_BORROW_MASK (OPC_SUB | OPC_SBB | OPC_CMP | OPC_DEC )
+
 //=======================================================================================================================================================
 //=========================================================OPCLASS RULES=================================================================================
 
@@ -84,18 +85,38 @@ static inline uint32_t gpr16(CPU *cpu, GeneralPurposeRegisterType id)
     return cpu->gen_purpose_registers[id].word[0];
 }
 
-static inline uint32_t gpr8(CPU *cpu, GeneralPurposeRegisterType id)
+static inline uint32_t gpr8(CPU *cpu, GeneralPurposeRegisterType id_base, GPR8 id)
 {
-    return cpu->gen_purpose_registers[id].byte[0];
+    if (id <= 4)
+        return cpu->gen_purpose_registers[id_base].byte[0];
+    else 
+        return cpu->gen_purpose_registers[id_base].byte[1];
 }
+
+static inline int get_base_reg(GeneralPurposeRegisterType *id_base, GPR8 id)
+{
+    if (id == AL || id == AH) { *id_base = EAX; return EXECUTE_SUCCESS; }
+    if (id == CL || id == CH) { *id_base = ECX; return EXECUTE_SUCCESS; }
+    if (id == DL || id == DH) { *id_base = EDX; return EXECUTE_SUCCESS; }
+    if (id == BL || id == BH) { *id_base = EBX; return EXECUTE_SUCCESS; }
+    else return INVALID_OPCODE;
+}
+
 
 static inline uint32_t gpr_w_handler(CPU *cpu, GeneralPurposeRegisterType id, size_t width)
 {
     switch (width)
     {
-        case 8: return gpr8(cpu, id);
-        case 16: return gpr16(cpu, id);
-        case 32: return gpr32(cpu, id);
+        case 8: 
+        {
+            GeneralPurposeRegisterType id_base;
+            GPR8 id8 = (GPR8)(id);
+            get_base_reg(&id_base, id8);
+            return gpr8(cpu, id_base, id8);
+            break;
+        }
+        case 16: return gpr16(cpu, id); break;
+        case 32: return gpr32(cpu, id); break;
         default: return 0;
     }
 }
@@ -119,7 +140,14 @@ static inline void set_gpr_w_handler(CPU *cpu, GeneralPurposeRegisterType id, si
 {
     switch (width)
     {
-        case 8: set_gpr8(cpu, id, (uint8_t)value); break;
+        case 8: 
+        {
+            GPR8 id8 = (GPR8)(id);
+            GeneralPurposeRegisterType id_base;
+            get_base_reg(&id_base, id8);
+            set_gpr8(cpu, id, (uint8_t)value); 
+            break;
+        }
         case 16: set_gpr16(cpu, id, (uint16_t)value); break;
         case 32: set_gpr32(cpu, id, value); break;
         default: break;
@@ -179,7 +207,6 @@ static inline char get_operand_size(CPU *cpu, BUS *bus, Instruction *instr)
     /*
     If L (long mode) is set for a code segment descriptor, D must be clear. 
     The L=1 / D=1 combination is currently meaningless / reserved. 
-    Intel documents this nearby in the same document you were looking at.
     If L is clear, then D selects between 16 and 32-bit mode.
      (i.e. the default operand / address size).
     */
@@ -1175,10 +1202,16 @@ int execute_MOV_MOFFSv_EAXv (BUS *bus, CPU *cpu, Instruction *decoded_instr)   {
 //=======================================================================================================================================================
 //===============================================================B0 - BF=================================================================================
 
-int execute_MOV_AL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
-int execute_MOV_CL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
-int execute_MOV_DL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
-int execute_MOV_R8_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_MOV_AL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, AL, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_CL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, CL, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_DL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, DL, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_BL_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, BL, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_AH_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, AH, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_CH_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, CH, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_DH_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, DH, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+int execute_MOV_BH_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, BH, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
+
+int execute_MOV_R8_IMM8     (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { set_gpr_w_handler(cpu, AL, 8, get_unsigned_imm(decoded_instr)); return EXECUTE_SUCCESS; }  
 
 int execute_MOV_EAX_IMM32(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {

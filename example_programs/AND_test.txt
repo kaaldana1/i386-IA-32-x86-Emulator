@@ -8,4 +8,3 @@ BB AA 00 00 00                ; mov  ebx, 0x000000AA
 20 18                         ; and  [eax], bl           
 22 58 01                      ; and  bl, [eax+1]         
 89 58 04                      ; mov  [eax+4], ebx       final = 0x00000000 iff all ANDs correct 
-F4

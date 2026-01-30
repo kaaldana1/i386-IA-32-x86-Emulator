@@ -2,9 +2,9 @@
 #include "machine/boot.h"
 #include "hardware_sim/memmap.h"
 #include "hardware_sim/devices_internal.h"
+#include "hardware_sim/interrupt_controller.h"
+#include "hardware_sim/interrupt_handlers.h"
 #include "ui/display_api.h"
-#include "core/interrupt/interrupt_controller.h"
-#include "core/interrupt/interrupt_handlers.h"
 #include "core/clock.h"
 #include "ids/return_code_list.h"
 

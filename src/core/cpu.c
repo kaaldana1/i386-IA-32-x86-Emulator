@@ -2,10 +2,11 @@
 #include "core/int_utils.h"
 #include "ui/display_api.h"
 #include "ids/return_code_list.h"
-#include "core/interrupt/interrupt_controller.h"
-#include "core/interrupt/interrupt_handlers.h"
+#include "core/int_cpu_interrupts.h"
 
 #define MAX_INSTR_LENGTH 16
+
+InterruptController irc = {{0}, {0}};
 
 static void set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
@@ -78,12 +79,22 @@ static int prefetch (BUS *bus, uint32_t *queue, uint32_t addr)
     return 1;
 }
 
+
+void clear_interrupt(IRQNumber irq_num)
+{
+    irc.pending[irq_num] = 0;
+}
+
+
 static void execute_pending_interrupts()
 {
     for (int i = 0; i < IRQ_COUNT; i++)
     {
-        if (irc.enabled[i] && irc.pending[i])
+        if (irc.enabled[i] && irc.pending[i]) 
+        {
             (*irq_handler_table[i])();
+            clear_interrupt((IRQNumber)i);
+        }
     }
 }
 
@@ -106,7 +117,6 @@ static int check_instr(Instruction *instr)
 
 int interpreter(CPU *cpu, BUS *bus, Clock *clock) 
 {
-    execute_pending_interrupts();
     uint32_t start_addr;
     uint32_t CS_base = cpu->segment_registers[CS].base;
     uint32_t CS_limit = cpu->segment_registers[CS].limit;
@@ -136,6 +146,7 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
     }
 
     tick(clock);
+    execute_pending_interrupts();
 
     free(decoded_instruction);   
     return EXECUTE_SUCCESS;

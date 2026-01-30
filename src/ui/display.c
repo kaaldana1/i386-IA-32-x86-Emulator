@@ -82,7 +82,7 @@ const ObjectDescription objects[OBJECT_COUNT] =
     [DECODER_FIELDS]        = {.height = 1 /*col*/, .width = 4 /*row*/, .y_pos = 3, .x_pos = 2},
     [DECODER_FIELDS_ENTRY]  = {.height = 2, .width = 3, .y_pos = 0, .x_pos = 2},
     [SCREEN_COMPUTER_IMAGE] = {.height = 22, .width = 60, .y_pos = 1, .x_pos = 2},
-    [SCREEN_DRAWABLE_AREA ] = {.height = SCREEN_HEIGHT, .width = SCREEN_WIDTH, .y_pos = 10, .x_pos = 30},
+    [SCREEN_DRAWABLE_AREA ] = {.height = SCREEN_HEIGHT, .width = SCREEN_WIDTH, .y_pos = 5, .x_pos = 30},
     [REGISTER_TABLE_AREA]   = {.height = 8 /*rows*/, .width = 3/*cols*/, .x_pos = 3, .y_pos = 2 },
     [REGISTER_TABLE_ENTRY]  = {.height = 3, .width = 20, .x_pos = 0, .y_pos = 0 },
     [MEMORY_DATA_TABLE_AREA]   = {.height = 12, .width = 4, .y_pos = 2, .x_pos = 10},
@@ -148,6 +148,7 @@ typedef struct
 {
     WINDOW *windows[WINDOW_COUNT];
 
+    long time_delay_ms;
     CPU cpu;
     Instruction decoded_instr;
 
@@ -324,10 +325,11 @@ void cb_flush_ui()
     }
 
     // not liking how an actual part of the emulator depends on ui. but for now its ok
+    sleep_ms(ui_state.time_delay_ms);
 
 }
 
-int init_ui() 
+int init_ui(long time_delay_ms) 
 {
     initscr();
     cbreak(); // exits out on ctrl+c
@@ -335,6 +337,8 @@ int init_ui()
     nodelay(stdscr, TRUE);
     keypad(stdscr, TRUE);
     refresh();
+
+    ui_state.time_delay_ms = time_delay_ms;
 
     start_color();
     init_pair(CYAN_BLACK, COLOR_CYAN, COLOR_BLACK);

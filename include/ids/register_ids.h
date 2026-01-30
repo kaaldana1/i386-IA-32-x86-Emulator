@@ -12,6 +12,13 @@ typedef enum
     CS, DS, ES, FS, GS, SS
 } SegmentRegisterType;
 
+typedef enum 
+{
+    AL = 0, CL, DL, 
+    BL, AH, CH, DH, 
+    BH, GPR8_COUNT
+} GPR8;
+
 typedef enum
 {
      SF = 1 << 0,  /*sign flag: 

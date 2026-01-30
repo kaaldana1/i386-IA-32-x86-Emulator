@@ -26,7 +26,7 @@ VGADev *init_vga(void)
 {
     VGADev *v = (VGADev*)calloc(1, sizeof(VGADev));
     memset(v, 0, sizeof(VGADev));
-    v->refresh_rate = 300;
+    v->refresh_rate = 5;
 
     if (ui_on)
         machine_state.ui_callbacks.ui_set_display_vga_pointer(v);
@@ -140,7 +140,10 @@ int keyboard_read(void *device, uint32_t *value, uint32_t address, size_t width)
 {
     KeyboardDev *k = device;
     if (address == KEYBOARD_DATA_ADDR)
+    {
         *value = k->read;
+        k->status = false;
+    }
     if (address == KEYBOARD_STATUS_ADDR)
         *value = (uint32_t)k->status;
     return 1;

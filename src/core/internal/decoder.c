@@ -161,7 +161,7 @@ static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
         uint8_t reg_or_opcode = (((decoded_instr->modrm) >> 3) & 0x7);
         uint8_t rm_field = ((decoded_instr->modrm) & 0x7);
 
-        if ((mod != 3) && (rm_field == 0x4))
+        if ((mod != 0x3) && (rm_field == 0x4))
         {
             decode_sib(decoded_instr, cursor);
         }

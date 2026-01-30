@@ -7,7 +7,8 @@
 static FILE *get_file(char *filename)
 {
     FILE *fptr = fopen(filename, "rb");
-    if (fptr == NULL) { 
+    if (fptr == NULL) 
+    { 
         return NULL; 
     }
     return fptr;
@@ -17,7 +18,8 @@ Program *create_program(char *filename)
 {
     Program *p = (Program*)calloc(1, sizeof(Program));
     FILE *fptr = get_file(filename);
-    if (fptr == NULL) {
+    if (fptr == NULL) 
+    {
         free(p);
         return NULL;
     }

@@ -1,8 +1,8 @@
-#include "core/interrupt/interrupt_controller.h"
+#include "core/int_cpu_interrupts.h"
+#include "hardware_sim/interrupt_controller.h"
 #include "hardware_sim/devices_internal.h"
 
 
-InterruptController irc = {{0}, {0}};
 
 void interrupt_controller(IRQNumber irq_num)
 {
