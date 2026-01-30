@@ -39,8 +39,9 @@ make
 ```
 
 #### Run
+```
 ./c --program example/program.txt --ui
-
+```
 
 ### Optional: Prebuilt Binaries
 Binaries for both Linux/WSL and macOS are provided for convenience and can be found under GitHub Releases.
