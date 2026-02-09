@@ -1,5 +1,6 @@
 ## i386 Emulator
-<img width="944" height="551" alt="image" src="https://github.com/user-attachments/assets/0a48f77a-6eb5-46bb-ba7f-dac1bcff1a66" />
+![ScreenRecording2026-01-26001517-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/8099a9da-04b6-41da-847f-5a7d64c274ef)
+
 
 ### Overview
 This project is an i386 Emulator that models a subset of the Intel IA-32 architecture. It follows 
