@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include "ids/opcode_list.h"
 
+
 typedef struct {
     uint8_t prefix[4];
     uint8_t prefix_length;
@@ -42,5 +43,7 @@ typedef struct {
 
     uint8_t total_length;
 } Instruction;
+
+
 
 #endif
