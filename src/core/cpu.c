@@ -129,7 +129,7 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
     if (prefetch(bus, instr_queue, start_addr) == BUS_READ_FAILURE) { return BUS_READ_FAILURE; }
     to_byte_array(instr_queue, byte_instr_queue);
 
-    Instruction *decoded_instruction = decoder(byte_instr_queue);
+    Instruction *decoded_instruction = decoder(byte_instr_queue, sizeof byte_instr_queue);
     if (check_instr(decoded_instruction) == BAD_DECODE) { return BAD_DECODE; }
 
     cpu->gen_purpose_registers[EIP].dword += decoded_instruction->total_length;

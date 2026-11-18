@@ -3,24 +3,32 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
+#include <optional>
+#include <algorithm>
+#include <cstdlib>
+#include <stdexcept>
 #include <variant>
 #include <vector>
+#include <unordered_map>
 
 extern "C" {
 #include "core/structs/instruction.h"
 #include "core/cpu_internal.h"
 #include "tables/decode_tables.h"
+#include "core/decoder.h"
 }
 
 namespace ia32 
 {
-    using Instruction = ::Instruction;
+
     using CPU = ::CPU;
+    using GuestRegType = ::GeneralPurposeRegisterType;
+    using GuestReg = :: GeneralPurposeRegister;
+
+    using Instruction = ::Instruction;
     using OpcodeID = ::OpcodeID;
-    using GuestReg = ::GeneralPurposeRegisterType;
     using InstructionMetadata = ::InstructionMetadata;
-    using ::instr_metadata_lut;
-    using ::single_byte_opcode_lut;
 
     constexpr OpcodeID accepted_ids[] = {
         OpcodeID::MOV_EAX_IMM32, OpcodeID::MOV_ECX_IMM32,
@@ -32,12 +40,47 @@ namespace ia32
         OpcodeID::JMP_REL32, OpcodeID::JE_REL8, OpcodeID::JNE_REL8
     };
 
+
+    using ::instr_metadata_lut;
+    using ::single_byte_opcode_lut;
+    using ::decoder;
+
     constexpr bool is_accepted(OpcodeID opcode)
     {
         for (const OpcodeID accepted : accepted_ids) {
             if (opcode == accepted) return true;
         }
         return false;
+    }
+
+    using GuestProgram = std::vector<std::uint8_t>;
+    GuestProgram read_binary_file(const char* filename)
+    {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file) { throw std::runtime_error("Couldn't open bin"); }
+
+        file.seekg(0, std::ios::end);
+        const std::streamsize size = file.tellg();
+        if (size < 0) { throw std::runtime_error("Could not determine file size"); }
+        file.seekg(0, std::ios::beg);
+        if (!file) { throw std::runtime_error("Could not seek file"); }
+
+        std::vector<std::uint8_t> buffer(size);
+        if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) { throw std::runtime_error("Could not read file"); }
+        return buffer;
+    }
+
+    std::optional<std::vector<std::uint8_t>>prefetch_guest_program(const GuestProgram& program, const GuestReg& EIP) 
+    {
+        const std::size_t offset = EIP.dword;
+        if (offset >= program.size()) { return std::nullopt; }
+        // An IA32 instruction is at most 15 bytes
+        constexpr std::size_t max_prefetch_buffer_size = 15;
+        const std::size_t remaining_guest_program_size = program.size() - offset;
+        const std::size_t chunk_size = std::min(max_prefetch_buffer_size, remaining_guest_program_size);
+        std::vector<std::uint8_t> prefetch_chunk(chunk_size);
+        std::copy_n(program.begin() + offset, chunk_size, prefetch_chunk.begin());
+        return prefetch_chunk;
     }
 }
 
@@ -47,8 +90,8 @@ namespace ia32
 struct Value { std::uint32_t id; }; // Virtual register, not the host reg
 
 struct Const32 { Value destination; std::uint32_t value; };
-struct LoadReg32 { Value destination; ia32::GuestReg reg; };
-struct StoreReg32 { ia32::GuestReg reg; Value source; };
+struct LoadReg32 { Value destination; ia32::GuestRegType reg; };
+struct StoreReg32 { ia32::GuestRegType reg; Value source; };
 struct Add32 { Value destination, lhs, rhs; };
 struct IsZero32 { Value destination, source; };
 struct Equal32 { Value destination, lhs, rhs; };
@@ -78,6 +121,15 @@ enum class ARM64Mnemonic
 };
 
 //============
+// Translation Cache
+//============
+
+// a better version should have guest_pc + cpu context lookup
+// chaining would require HostCodeInfo to have exit information
+struct HostCodeInfo { std::uintptr_t start_addr; std::size_t length; }; // no chaining for now
+std::unordered_map<std::uint32_t, HostCodeInfo> translation_cache;
+
+//============
 // JITruntime stuff
 //============
 
@@ -86,8 +138,8 @@ using BlockFunction = void (*)(ia32::CPU* cpu_state);
 
 // cpu_offset is a byte offset into CPU, not a guest address
 asmjit::Error ARM64_emit(asmjit::a64::Assembler& assembler, ARM64Mnemonic mnemonic,
-                                      HostRegisterNumber destination, HostRegisterNumber source,
-                                      std::uint64_t immediate = 0, std::int32_t cpu_offset = 0, std::uint32_t shift = 0)
+                        HostRegisterNumber destination, HostRegisterNumber source,
+                        std::uint64_t immediate = 0, std::int32_t cpu_offset = 0, std::uint32_t shift = 0)
 {
     namespace a64 = asmjit::a64;
 
@@ -118,7 +170,9 @@ asmjit::Error ARM64_emit(asmjit::a64::Assembler& assembler, ARM64Mnemonic mnemon
 
 enum class TranslationStatus 
 { 
-    NotImplemented 
+    NotImplemented,
+    EndOfGuestProgram,
+    DecodeError
 };
 
 TranslationStatus translate(const ia32::Instruction* decoded_instructions, std::size_t instruction_count)
@@ -148,16 +202,34 @@ BlockFunction cache_lookup(const ia32::CPU& cpu_state)
     return nullptr;
 }
 
-TranslationStatus dispatch(ia32::CPU& cpu_state, BlockFunction block_function)
+TranslationStatus dispatch(ia32::GuestProgram& guest_program, ia32::CPU& cpu_state, BlockFunction block_function)
 {
     // lookup code in cache first, if not, itll will go through the decoder, translator
     // install code
     // dispatcher transfers control to the installed code
+    const ia32::GuestReg& guest_eip = cpu_state.gen_purpose_registers[::EIP];
+    if (!translation_cache.contains(guest_eip.dword))
+    {
+
+        auto result = ia32::prefetch_guest_program(guest_program, guest_eip);
+        if (!result) { return TranslationStatus::EndOfGuestProgram; }
+        ia32::Instruction* guest_instruction = ia32::decoder(result->data(), result->size());
+        if (!guest_instruction) { return TranslationStatus::DecodeError; }
+        // TODO: translate the decoded instruction 
+        // decoder allocated instr with calloc
+        std::free(guest_instruction);
+    }
     return TranslationStatus::NotImplemented;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc < 2) 
+    {
+        std::fprintf(stderr, "Usage: %s <guest-binary>\n", argv[0]);
+        return 1;
+    }
+
     asmjit::JitRuntime jit_runtime;
     asmjit::CodeHolder code;
     const asmjit::Error error = code.init(jit_runtime.environment());
@@ -166,6 +238,9 @@ int main()
         std::fprintf(stderr, "AsmJit initialization failed: %s\n", asmjit::stringify_error(error));
         return 1;
     }
+
+    ia32::GuestProgram guest_program = ia32::read_binary_file(argv[1]);
+    ia32::CPU guest_cpu_state{};
 
     return 0;
 }
