@@ -4,6 +4,6 @@
 #include "cpu_internal.h"
 #include "tables/decode_tables.h"
 
-Instruction *decoder(uint8_t *encoded_instr);
+Instruction *decoder(uint8_t *encoded_instr, size_t prefetched_size);
 
 #endif

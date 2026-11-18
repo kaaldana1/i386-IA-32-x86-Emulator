@@ -16,6 +16,7 @@ FetchContent_MakeAvailable(asmjit)
 
 add_executable(hybrid_binary_translator
     hybrid_binary_translator.cpp
+    ../src/core/internal/decoder.c
     ../src/tables/decode_tables.c
 )
 target_include_directories(hybrid_binary_translator PRIVATE ../include)
