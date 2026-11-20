@@ -40,11 +40,11 @@ namespace ia32
         OpcodeID::JMP_REL32, OpcodeID::JE_REL8, OpcodeID::JNE_REL8
     };
 
-
     using ::instr_metadata_lut;
     using ::single_byte_opcode_lut;
     using ::decoder;
 
+    using InstructionBundle = std::vector<Instruction*>;
     constexpr bool is_accepted(OpcodeID opcode)
     {
         for (const OpcodeID accepted : accepted_ids) {
@@ -211,13 +211,34 @@ TranslationStatus dispatch(ia32::GuestProgram& guest_program, ia32::CPU& cpu_sta
     if (!translation_cache.contains(guest_eip.dword))
     {
 
-        auto result = ia32::prefetch_guest_program(guest_program, guest_eip);
-        if (!result) { return TranslationStatus::EndOfGuestProgram; }
-        ia32::Instruction* guest_instruction = ia32::decoder(result->data(), result->size());
-        if (!guest_instruction) { return TranslationStatus::DecodeError; }
-        // TODO: translate the decoded instruction 
-        // decoder allocated instr with calloc
-        std::free(guest_instruction);
+        ia32::InstructionBundle bundle = {};
+        while(1)
+        {
+            auto result = ia32::prefetch_guest_program(guest_program, guest_eip);
+            if (!result) { return TranslationStatus::EndOfGuestProgram; }
+
+            ia32::Instruction* guest_instruction_ptr = ia32::decoder(result->data(), result->size());
+            if (!guest_instruction_ptr) { return TranslationStatus::DecodeError; }
+            ia32::Instruction guest_instruction = *guest_instruction_ptr;
+            
+            // decoder allocated instr with calloc
+            std::free(guest_instruction_ptr);
+            ia32::OpcodeID& id = guest_instruction->OpcodeID;
+
+            if (!is_accepted(id)) { return TranslationStatus::InstructionNotAccepted; }
+
+            if (id = ia32::OpcodeID::JMP_REL8  || 
+                id = ia32::OpcodeID::JMP_REL32 || 
+                id = ia32::OpcodeID::JE_REL8   ||
+                id = ia32::OpcodeID::JNE_REL8  || )
+            {
+                bundle.push_back()
+                break;
+            }
+
+
+        }
+
     }
     return TranslationStatus::NotImplemented;
 }
