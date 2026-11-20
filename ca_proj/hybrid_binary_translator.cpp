@@ -44,8 +44,10 @@ namespace ia32
     using ::single_byte_opcode_lut;
     using ::decoder;
 
-    using InstructionBundle = std::vector<Instruction*>;
-    constexpr bool is_accepted(OpcodeID opcode)
+    using InstructionBundle = std::vector<Instruction>;
+    using GuestProgram = std::vector<std::uint8_t>;
+
+    bool is_accepted(OpcodeID opcode)
     {
         for (const OpcodeID accepted : accepted_ids) {
             if (opcode == accepted) return true;
@@ -53,7 +55,6 @@ namespace ia32
         return false;
     }
 
-    using GuestProgram = std::vector<std::uint8_t>;
     GuestProgram read_binary_file(const char* filename)
     {
         std::ifstream file(filename, std::ios::binary);
@@ -70,9 +71,8 @@ namespace ia32
         return buffer;
     }
 
-    std::optional<std::vector<std::uint8_t>>prefetch_guest_program(const GuestProgram& program, const GuestReg& EIP) 
+    std::optional<std::vector<std::uint8_t>>prefetch_guest_program(const GuestProgram& program, std::uint32_t offset) 
     {
-        const std::size_t offset = EIP.dword;
         if (offset >= program.size()) { return std::nullopt; }
         // An IA32 instruction is at most 15 bytes
         constexpr std::size_t max_prefetch_buffer_size = 15;
@@ -84,125 +84,187 @@ namespace ia32
     }
 }
 
-//============
-// IR
-//============
-struct Value { std::uint32_t id; }; // Virtual register, not the host reg
+namespace direct_route {
+    // current support has more direct elibible instruction since im using simpler instructions
+    // that may easily map from ia32 to aarch64,
+    // but a full implementation would probably need to use IR more -> longer list
+    constexpr ia32::OpcodeID direct_eligible[] = {
+        ia32::OpcodeID::MOV_EAX_IMM32, ia32::OpcodeID::MOV_ECX_IMM32,
+        ia32::OpcodeID::MOV_EDX_IMM32, ia32::OpcodeID::MOV_EBX_IMM32,
+        ia32::OpcodeID::INC_EAX, ia32::OpcodeID::INC_ECX,
+        ia32::OpcodeID::INC_EDX, ia32::OpcodeID::INC_EBX,
+        ia32::OpcodeID::JMP_REL8, ia32::OpcodeID::JMP_REL32, 
+        ia32::OpcodeID::JE_REL8, ia32::OpcodeID::JNE_REL8
+    };
 
-struct Const32 { Value destination; std::uint32_t value; };
-struct LoadReg32 { Value destination; ia32::GuestRegType reg; };
-struct StoreReg32 { ia32::GuestRegType reg; Value source; };
-struct Add32 { Value destination, lhs, rhs; };
-struct IsZero32 { Value destination, source; };
-struct Equal32 { Value destination, lhs, rhs; };
-struct LoadZF { Value destination; };
-struct StoreZF { Value source; };
-struct Select32 { Value destination, condition, if_true, if_false; };
-struct SetGuestEIP { std::uint32_t value; };
-struct ExitBlock {};
+    bool is_direct_eligible(ia32::OpcodeID opcode)
+    {
+        for (const ia32::OpcodeID eligible : direct_eligible) {
+            if (opcode == eligible) return true;
+        }
+        return false;
+    }
 
-using IR_object = std::variant<Const32, LoadReg32, StoreReg32, Add32, IsZero32,
-                               Equal32, LoadZF, StoreZF, Select32, SetGuestEIP,
-                               ExitBlock>;
-
-using Block = std::vector<IR_object>;
-
-enum class ARM64Mnemonic 
-{
-    MOVZ, 
-    MOVK, 
-    LDR, 
-    STR, 
-    ADD_IMMEDIATE, 
-    ADD, 
-    CMP, 
-    CSET, 
-    RET
 };
 
-//============
-// Translation Cache
-//============
+namespace IR {
+    struct Value { std::uint32_t id; }; // Virtual register, not the host reg
 
-// a better version should have guest_pc + cpu context lookup
-// chaining would require HostCodeInfo to have exit information
-struct HostCodeInfo { std::uintptr_t start_addr; std::size_t length; }; // no chaining for now
-std::unordered_map<std::uint32_t, HostCodeInfo> translation_cache;
+    struct Const32 { Value destination; std::uint32_t value; };
+    struct LoadReg32 { Value destination; ia32::GuestRegType reg; };
+    struct StoreReg32 { ia32::GuestRegType reg; Value source; };
+    struct Add32 { Value destination, lhs, rhs; };
+    struct IsZero32 { Value destination, source; };
+    struct Equal32 { Value destination, lhs, rhs; };
+    struct LoadZF { Value destination; };
+    struct StoreZF { Value source; };
+    struct Select32 { Value destination, condition, if_true, if_false; };
+    struct SetGuestEIP { std::uint32_t value; };
+    struct ExitBlock {};
 
-//============
-// JITruntime stuff
-//============
+    using IR_object = std::variant<Const32, LoadReg32, StoreReg32, Add32, IsZero32,
+                                Equal32, LoadZF, StoreZF, Select32, SetGuestEIP,
+                                ExitBlock>;
 
-using HostRegisterNumber = std::uint32_t;
-using BlockFunction = void (*)(ia32::CPU* cpu_state);
+    using Block = std::vector<IR_object>;
+};
 
-// cpu_offset is a byte offset into CPU, not a guest address
-asmjit::Error ARM64_emit(asmjit::a64::Assembler& assembler, ARM64Mnemonic mnemonic,
-                        HostRegisterNumber destination, HostRegisterNumber source,
-                        std::uint64_t immediate = 0, std::int32_t cpu_offset = 0, std::uint32_t shift = 0)
+namespace translator {
+    enum class TranslationStatus 
+    { 
+        NotImplemented,
+        EndOfGuestProgram,
+        FailedCreateBundle, //ambiguous failure mode that ive not found out abt
+        InstructionNotAccepted,
+        Success,
+        DecodeError
+    };
+
+    class Translator {
+        public:
+            TranslationStatus dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu);
+
+        private:
+            TranslationStatus translate(const ia32::InstructionBundle& bundle);
+            // install(), cache lookup, etc.
+
+            // a better version should have guest_pc + cpu context lookup
+            // chaining would require HostCodeInfo to have exit information
+            struct HostCodeInfo { std::uintptr_t start_addr; std::size_t length; }; // no chaining for now
+            std::unordered_map<std::uint32_t, HostCodeInfo> translation_cache;
+    };
+};
+
+
+namespace aarch64 
 {
-    namespace a64 = asmjit::a64;
+    using HostRegisterNumber = std::uint32_t;
 
-    switch (mnemonic) {
-        // MOVZ/MOVK take a 16-bit immediate and a shift of 0 or 16 for W regs
-        case ARM64Mnemonic::MOVZ:
-            return assembler.movz(a64::w(destination), immediate, shift);
-        case ARM64Mnemonic::MOVK:
-            return assembler.movk(a64::w(destination), immediate, shift);
-        // LDR/STR assume x0 still holds the CPU pointer, so we preserve it before using w0 as scratch
-        case ARM64Mnemonic::LDR:
-            return assembler.ldr(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
-        case ARM64Mnemonic::STR:
-            return assembler.str(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
-        case ARM64Mnemonic::ADD_IMMEDIATE:
-            return assembler.add(a64::w(destination), a64::w(source), immediate);
-        case ARM64Mnemonic::ADD:
-            return assembler.add(a64::w(destination), a64::w(destination), a64::w(source));
-        case ARM64Mnemonic::CMP:
-            return assembler.cmp(a64::w(destination), immediate);
-        case ARM64Mnemonic::CSET:
-            return assembler.cset(a64::w(destination), asmjit::arm::CondCode::kEQ);
-        case ARM64Mnemonic::RET:
-            return assembler.ret(a64::x30);
-        }
-    return asmjit::Error::kInvalidInstruction;
+    enum class ARM64Mnemonic 
+    {
+        MOVZ, 
+        MOVK, 
+        LDR, 
+        STR, 
+        ADD_IMMEDIATE, 
+        ADD, 
+        CMP, 
+        CSET, 
+        RET
+    };
 }
 
-enum class TranslationStatus 
-{ 
-    NotImplemented,
-    EndOfGuestProgram,
-    DecodeError
-};
 
-TranslationStatus translate(const ia32::Instruction* decoded_instructions, std::size_t instruction_count)
+
+namespace jit {
+    using BlockFunction = void (*)(ia32::CPU* cpu_state);
+
+    class ARM64Emitter {
+        public:
+            explicit ARM64Emitter(asmjit::a64::Assembler& assembler) : assembler(assembler) {}
+
+            asmjit::Error emit(aarch64::ARM64Mnemonic mnemonic, aarch64::HostRegisterNumber destination,
+                aarch64::HostRegisterNumber source, std::uint64_t immediate = 0,
+                std::int32_t cpu_offset = 0, std::uint32_t shift = 0)
+                {
+                    namespace a64 = asmjit::a64;
+
+                    switch (mnemonic) {
+                        // MOVZ/MOVK take a 16-bit immediate and a shift of 0 or 16 for W regs
+                        case aarch64::ARM64Mnemonic::MOVZ:
+                            return assembler.movz(a64::w(destination), immediate, shift);
+                        case aarch64::ARM64Mnemonic::MOVK:
+                            return assembler.movk(a64::w(destination), immediate, shift);
+                        // LDR/STR assume x0 still holds the CPU pointer, so we preserve it before using w0 as scratch
+                        case aarch64::ARM64Mnemonic::LDR:
+                            return assembler.ldr(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
+                        case aarch64::ARM64Mnemonic::STR:
+                            return assembler.str(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
+                        case aarch64::ARM64Mnemonic::ADD_IMMEDIATE:
+                            return assembler.add(a64::w(destination), a64::w(source), immediate);
+                        case aarch64::ARM64Mnemonic::ADD:
+                            return assembler.add(a64::w(destination), a64::w(destination), a64::w(source));
+                        case aarch64::ARM64Mnemonic::CMP:
+                            return assembler.cmp(a64::w(destination), immediate);
+                        case aarch64::ARM64Mnemonic::CSET:
+                            return assembler.cset(a64::w(destination), asmjit::arm::CondCode::kEQ);
+                        case aarch64::ARM64Mnemonic::RET:
+                            return assembler.ret(a64::x30);
+                    }
+                    return asmjit::Error::kInvalidInstruction;
+                }
+
+        private:
+            asmjit::a64::Assembler& assembler;
+    };
+
+}
+
+
+
+
+namespace direct_route 
+{
+    translator::TranslationStatus emit(const ia32::Instruction& instruction, asmjit::a64::Assembler& assembler)
+    {
+        return translator::TranslationStatus::NotImplemented;
+    }
+}
+
+namespace IR 
+{
+    translator::TranslationStatus lower(const ia32::Instruction& instruction, Block& block)
+    {
+        return translator::TranslationStatus::NotImplemented;
+    }
+}
+
+namespace jit 
+{
+    translator::TranslationStatus code_install(asmjit::JitRuntime& runtime, asmjit::CodeHolder& code, BlockFunction& block_function)
+    {
+        return translator::TranslationStatus::NotImplemented;
+    }
+}
+
+translator::TranslationStatus translator::Translator::translate(const ia32::InstructionBundle& bundle)
 {
     // either IR or direct route
+    for (const ia32::Instruction& instruction : bundle)
+    {
+        const ia32::OpcodeID& id = instruction.OpcodeID;
+        if (direct_route::is_direct_eligible(id))
+        {
+        }
+        else
+        {
+
+        }
+    }
     return TranslationStatus::NotImplemented;
 }
 
-TranslationStatus direct_route(const ia32::Instruction& instruction, asmjit::a64::Assembler& assembler)
-{
-    return TranslationStatus::NotImplemented;
-}
-
-TranslationStatus IR_route(const ia32::Instruction& instruction, Block& block)
-{
-    return TranslationStatus::NotImplemented;
-}
-
-TranslationStatus code_install(asmjit::JitRuntime& runtime, asmjit::CodeHolder& code, BlockFunction& block_function)
-{
-    return TranslationStatus::NotImplemented;
-}
-
-//look up a block by guest EIP
-BlockFunction cache_lookup(const ia32::CPU& cpu_state)
-{
-    return nullptr;
-}
-
-TranslationStatus dispatch(ia32::GuestProgram& guest_program, ia32::CPU& cpu_state, BlockFunction block_function)
+translator::TranslationStatus translator::Translator::dispatch(const ia32::GuestProgram& guest_program, ia32::CPU& cpu_state)
 {
     // lookup code in cache first, if not, itll will go through the decoder, translator
     // install code
@@ -210,34 +272,31 @@ TranslationStatus dispatch(ia32::GuestProgram& guest_program, ia32::CPU& cpu_sta
     const ia32::GuestReg& guest_eip = cpu_state.gen_purpose_registers[::EIP];
     if (!translation_cache.contains(guest_eip.dword))
     {
-
+        // the decoder phase needs a copy of the EIP to inch forward, rather than use the EIP register,
+        // CPU state is changed by the host code
+        std::uint32_t block_entry_pc = guest_eip.dword;
         ia32::InstructionBundle bundle = {};
         while(1)
         {
-            auto result = ia32::prefetch_guest_program(guest_program, guest_eip);
-            if (!result) { return TranslationStatus::EndOfGuestProgram; }
+            auto guest_bytes = ia32::prefetch_guest_program(guest_program, block_entry_pc);
+            if (!guest_bytes) { return TranslationStatus::EndOfGuestProgram; }
 
-            ia32::Instruction* guest_instruction_ptr = ia32::decoder(result->data(), result->size());
+            ia32::Instruction* guest_instruction_ptr = ia32::decoder(guest_bytes->data(), guest_bytes->size());
             if (!guest_instruction_ptr) { return TranslationStatus::DecodeError; }
+
             ia32::Instruction guest_instruction = *guest_instruction_ptr;
-            
-            // decoder allocated instr with calloc
-            std::free(guest_instruction_ptr);
-            ia32::OpcodeID& id = guest_instruction->OpcodeID;
+            free(guest_instruction_ptr);
+            ia32::OpcodeID& id = guest_instruction.OpcodeID;
+            if (!ia32::is_accepted(id)) { return TranslationStatus::InstructionNotAccepted; }
 
-            if (!is_accepted(id)) { return TranslationStatus::InstructionNotAccepted; }
+            bundle.push_back(guest_instruction);
 
-            if (id = ia32::OpcodeID::JMP_REL8  || 
-                id = ia32::OpcodeID::JMP_REL32 || 
-                id = ia32::OpcodeID::JE_REL8   ||
-                id = ia32::OpcodeID::JNE_REL8  || )
-            {
-                bundle.push_back()
-                break;
-            }
-
-
+            if (id == ia32::OpcodeID::JMP_REL8  || id == ia32::OpcodeID::JMP_REL32 || 
+                id == ia32::OpcodeID::JE_REL8   || id == ia32::OpcodeID::JNE_REL8 ) { break; }
+            block_entry_pc += guest_instruction.total_length;
         }
+        if (bundle.empty()) { return TranslationStatus::FailedCreateBundle; }
+        translate(bundle);
 
     }
     return TranslationStatus::NotImplemented;
@@ -254,14 +313,23 @@ int main(int argc, char *argv[])
     asmjit::JitRuntime jit_runtime;
     asmjit::CodeHolder code;
     const asmjit::Error error = code.init(jit_runtime.environment());
+
     if (error != asmjit::Error::kOk) 
     {
         std::fprintf(stderr, "AsmJit initialization failed: %s\n", asmjit::stringify_error(error));
         return 1;
     }
 
+    asmjit::a64::Assembler assembler(&code);
+    jit::ARM64Emitter emitter(assembler);
+
     ia32::GuestProgram guest_program = ia32::read_binary_file(argv[1]);
     ia32::CPU guest_cpu_state{};
-
-    return 0;
+    translator::Translator translator_instance;
+    translator::TranslationStatus result = translator::TranslationStatus::NotImplemented;
+    do {
+        result = translator_instance.dispatch(guest_program, guest_cpu_state);
+    }
+    while (result == translator::TranslationStatus::Success);
+    return (int)result;
 }
