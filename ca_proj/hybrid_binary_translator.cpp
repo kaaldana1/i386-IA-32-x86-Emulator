@@ -26,6 +26,11 @@ namespace ia32
     using GuestRegType = ::GeneralPurposeRegisterType;
     using GuestReg = :: GeneralPurposeRegister;
 
+    std::int32_t register_offset(GuestRegType reg)
+    {
+        return static_cast<std::int32_t>(offsetof(CPU, gen_purpose_registers) + reg * sizeof(GuestReg));
+    }
+
     using Instruction = ::Instruction;
     using OpcodeID = ::OpcodeID;
     using InstructionMetadata = ::InstructionMetadata;
@@ -34,9 +39,15 @@ namespace ia32
     using ::single_byte_opcode_lut;
     using ::decoder;
 
-    using InstructionBundle = std::vector<Instruction>;
-    using GuestProgram = std::vector<std::uint8_t>;
-
+    std::uint32_t get_immediate32(const std::uint8_t (&immediate)[4])
+    {
+        return std::uint32_t{immediate[0]} |
+               (std::uint32_t{immediate[1]} << 8) |
+               (std::uint32_t{immediate[2]} << 16) |
+               (std::uint32_t{immediate[3]} << 24);
+    }
+    // acceptance depnds not only on the opcode but the operands
+    // example would be ADD_R32_RM32 (either reg-reg or reg-mem) but we only accept reg-reg
     bool is_accepted(const Instruction& instruction)
     {
         if (instruction.prefix_length != 0 || instruction.opcode_length != 1) { return false; }
@@ -65,6 +76,10 @@ namespace ia32
                 return false;
         }
     }
+
+
+    using InstructionBundle = std::vector<Instruction>;
+    using GuestProgram = std::vector<std::uint8_t>;
 
     GuestProgram read_binary_file(const char* filename)
     {
@@ -161,7 +176,7 @@ namespace translator {
             Status dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, jit::ARM64Emitter& emitter);
 
         private:
-            Status translate(const ia32::InstructionBundle& bundle, jit::ARM64Emitter& emitter);
+            Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter);
             // install(), cache lookup, etc.
 
             // a better version should have guest_pc + cpu context lookup
@@ -177,19 +192,7 @@ namespace translator {
 
 namespace aarch64 
 {
-    using HostRegisterNumber = std::uint32_t;
-
-    enum class Mnemonic 
-    {
-        MOVZ, MOVK, 
-        LDR, 
-        STR, 
-        ADD_IMMEDIATE, ADD, 
-        CMP, 
-        CSET, 
-        RET
-    };
-
+    using RegisterNumber = std::uint32_t;
 }
 
 
@@ -197,40 +200,57 @@ namespace aarch64
 namespace jit {
     using BlockFunction = void (*)(ia32::CPU* cpu_state);
 
-    class ARM64Emitter {
+    class ARM64Emitter
+    {
         public:
-            explicit ARM64Emitter(asmjit::a64::Assembler& assembler) : assembler(assembler) {}
+            explicit ARM64Emitter(asmjit::a64::Assembler& assembler)
+                : assembler(assembler) {}
 
-            asmjit::Error emit(aarch64::Mnemonic mnemonic, aarch64::HostRegisterNumber destination,
-                aarch64::HostRegisterNumber source, std::uint64_t immediate = 0,
-                std::int32_t cpu_offset = 0, std::uint32_t shift = 0)
-                {
-                    namespace a64 = asmjit::a64;
+            asmjit::Error load_immediate32(aarch64::RegisterNumber destination, std::uint32_t immediate)
+            {
+                const auto low = immediate & 0xFFFFu;
+                const auto high = immediate >> 16;
+                const auto error = assembler.movz(asmjit::a64::w(destination), low, 0);
+                if (error != asmjit::Error::kOk) { return error; }
+                return assembler.movk(asmjit::a64::w(destination), high, 16);
+            }
 
-                    switch (mnemonic) {
-                        // MOVZ/MOVK take a 16-bit immediate and a shift of 0 or 16 for W regs
-                        case aarch64::Mnemonic::MOVZ:
-                            return assembler.movz(a64::w(destination), immediate, shift);
-                        case aarch64::Mnemonic::MOVK:
-                            return assembler.movk(a64::w(destination), immediate, shift);
-                        // x0 holds the CPU pointer throughout the block. Use other registers for scratch.
-                        case aarch64::Mnemonic::LDR:
-                            return assembler.ldr(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
-                        case aarch64::Mnemonic::STR:
-                            return assembler.str(a64::w(destination), a64::ptr(a64::x0, cpu_offset));
-                        case aarch64::Mnemonic::ADD_IMMEDIATE:
-                            return assembler.add(a64::w(destination), a64::w(source), immediate);
-                        case aarch64::Mnemonic::ADD:
-                            return assembler.add(a64::w(destination), a64::w(destination), a64::w(source));
-                        case aarch64::Mnemonic::CMP:
-                            return assembler.cmp(a64::w(destination), immediate);
-                        case aarch64::Mnemonic::CSET:
-                            return assembler.cset(a64::w(destination), asmjit::arm::CondCode::kEQ);
-                        case aarch64::Mnemonic::RET:
-                            return assembler.ret(a64::x30);
-                    }
-                    return asmjit::Error::kInvalidInstruction;
-                }
+            // x0 holds the CPU pointer throughout the block, offset for the registers
+            asmjit::Error load_cpu32(aarch64::RegisterNumber destination, std::int32_t offset)
+            {
+                return assembler.ldr(asmjit::a64::w(destination), asmjit::a64::ptr(asmjit::a64::x0, offset));
+            }
+
+            asmjit::Error store_cpu32(aarch64::RegisterNumber source, std::int32_t offset)
+            {
+                return assembler.str(asmjit::a64::w(source), asmjit::a64::ptr(asmjit::a64::x0, offset));
+            }
+
+            asmjit::Error add32(aarch64::RegisterNumber destination, aarch64::RegisterNumber lhs, aarch64::RegisterNumber rhs)
+            {
+                return assembler.add(asmjit::a64::w(destination), asmjit::a64::w(lhs), asmjit::a64::w(rhs));
+            }
+
+            asmjit::Error add_immediate32(aarch64::RegisterNumber destination, aarch64::RegisterNumber source, std::uint32_t immediate)
+            {
+                return assembler.add(asmjit::a64::w(destination), asmjit::a64::w(source), immediate);
+            }
+
+            asmjit::Error compare_immediate32(aarch64::RegisterNumber source, std::uint32_t immediate)
+            {
+                return assembler.cmp(asmjit::a64::w(source), immediate);
+            }
+
+            asmjit::Error set_equal32(aarch64::RegisterNumber destination)
+            {
+                // EQ tests the host Z flag set by a preceding comparison.
+                return assembler.cset(asmjit::a64::w(destination), asmjit::arm::CondCode::kEQ);
+            }
+
+            asmjit::Error ret()
+            {
+                return assembler.ret(asmjit::a64::x30);
+            }
 
         private:
             asmjit::a64::Assembler& assembler;
@@ -250,7 +270,7 @@ namespace jit
 
 namespace ir 
 {
-    translator::Status translate(const ia32::InstructionBundle&, jit::ARM64Emitter&)
+    translator::Status translate(const ia32::InstructionBundle&, std::uint32_t, jit::ARM64Emitter&)
     {
         // This is a placeholder for the IR translation logic.
         // Lower the whole bundle to IR, then emit AArch64.
@@ -259,24 +279,22 @@ namespace ir
 }
 namespace direct_route
 {
-    translator::Status translate(const ia32::InstructionBundle& bundle, jit::ARM64Emitter& emitter)
+    translator::Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter)
     {
-        using aarch64::Mnemonic;
         using asmjit::Error;
 
         // instead of mapping each guest reg to host reg
         // reusing the same host reg is safe
-        // because each host instruction updates the guest state CPU, which have their own unique slots 
-            // (ie eax or ecx gets updated)
-        // when host machine moves onto the next instruction, it can reuse the same host reg
-        aarch64::HostRegisterNumber a64_scratch = 9;
+        // because each guest instruction stores its result in its own CPU slot
+        // before the next guest instruction reuses the scratch register
+        constexpr aarch64::RegisterNumber host_scratch_register = 9;
 
         for (const ia32::Instruction& instruction : bundle)
         {
-            // MOV and INC encode their register in the low three bits of the opcode.
-            const auto guest_reg = instruction.opcode[0] & 0x7;
-            const auto cpu_offset = static_cast<std::int32_t>(
-                offsetof(ia32::CPU, gen_purpose_registers) + guest_reg * sizeof(ia32::GuestReg));
+            const std::uint32_t next_pc = guest_pc + instruction.total_length;
+            // MOV and INC encode their register in the low three bits of the opcode
+            // ldr dest, [x0, cpu_offset], where x0 holds cpu*
+            const auto guest_reg = static_cast<ia32::GuestRegType>(instruction.opcode[0] & 0x7);
 
             switch (instruction.OpcodeID)
             {
@@ -285,14 +303,11 @@ namespace direct_route
                 case ia32::OpcodeID::MOV_EDX_IMM32:
                 case ia32::OpcodeID::MOV_EBX_IMM32:
                 {
-                    const auto low = std::uint32_t(instruction.immediate[0]) | (std::uint32_t(instruction.immediate[1]) << 8);
-                    const auto high = std::uint32_t(instruction.immediate[2]) | (std::uint32_t(instruction.immediate[3]) << 8);
-                    if (emitter.emit(Mnemonic::MOVZ, a64_scratch, 0, low) != Error::kOk ||
-                        emitter.emit(Mnemonic::MOVK, a64_scratch, 0, high, 0, 16) != Error::kOk ||
-                        emitter.emit(Mnemonic::STR, a64_scratch, 0, 0, cpu_offset) != Error::kOk )
-                    {
-                        return translator::Status::FailedDirectRoute;
-                    }
+                    const auto immediate = ia32::get_immediate32(instruction.immediate);
+
+                    if (emitter.load_immediate32(host_scratch_register, immediate) != Error::kOk || 
+                        emitter.store_cpu32(host_scratch_register, ia32::register_offset(guest_reg)) != Error::kOk)
+                    { return translator::Status::FailedDirectRoute; }
                     break;
                 }
                 case ia32::OpcodeID::INC_EAX:
@@ -300,31 +315,50 @@ namespace direct_route
                 case ia32::OpcodeID::INC_EDX:
                 case ia32::OpcodeID::INC_EBX:
                 {
-                    if (emitter.emit(Mnemonic::LDR, a64_scratch, 0, 0, cpu_offset) != Error::kOk ||
-                        emitter.emit(Mnemonic::ADD_IMMEDIATE, a64_scratch, a64_scratch, 1) != Error::kOk ||
-                        emitter.emit(Mnemonic::STR, a64_scratch, 0, 0, cpu_offset) != Error::kOk )
-                    {
-                        return translator::Status::FailedDirectRoute;
-                    }
-                    // TODO: update guest ZF from the result.
+                    const auto cpu_offset = ia32::register_offset(guest_reg);
+                    if (emitter.load_cpu32(host_scratch_register, cpu_offset) != Error::kOk ||
+                        emitter.add_immediate32(host_scratch_register, host_scratch_register, 1) != Error::kOk ||
+                        emitter.store_cpu32(host_scratch_register, cpu_offset) != Error::kOk)
+                    { return translator::Status::FailedDirectRoute; }
+                    // TODO: update guest ZF from the result
                     break;
                 }
 
                 case ia32::OpcodeID::JMP_REL8:
                 case ia32::OpcodeID::JMP_REL32:
+                {
+                    const std::uint32_t displacement = (instruction.OpcodeID == ia32::OpcodeID::JMP_REL8) ?
+                                                        static_cast<std::uint32_t>(static_cast<std::int8_t>(instruction.immediate[0])) : 
+                                                        ia32::get_immediate32(instruction.immediate);
+                    const std::uint32_t target = next_pc + displacement;
+                    if (emitter.load_immediate32(host_scratch_register, target) != Error::kOk ||
+                        emitter.store_cpu32(host_scratch_register, ia32::register_offset(ia32::GuestRegType::EIP)) != Error::kOk ||
+                        emitter.ret() != Error::kOk)
+                    { return translator::Status::FailedDirectRoute; }
+
+                    // Installing and executing the emitted block is still pending
+                    return translator::Status::NotImplemented;
+                }
                 case ia32::OpcodeID::JE_REL8:
+                // Jump to target if ZF = 1
+                // Host side:
+                // Find offset of ZF, load into scratch reg
+                // load guest EIP into host target reg
+                // CMP scratc_reg, 0 -> sets host's N(negative) flag if ZF = 0, clears N if ZF = 1
+                // CSET , kEQ -> 
                 case ia32::OpcodeID::JNE_REL8:
+                    // TODO: read guest ZF and select the target or fall-through EIP
                     return translator::Status::NotImplemented;
                 default:
                     return translator::Status::FailedDirectRoute;
             }
+            guest_pc = next_pc;
         }
-        // TODO: emit the fall-through guest EIP and return to the dispatcher.
         return translator::Status::NotImplemented;
     }
 }
 
-translator::Status translator::Translator::translate(const ia32::InstructionBundle& bundle, jit::ARM64Emitter& emitter)
+translator::Status translator::Translator::translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter)
 {
     // whole bundle needs to be direct route or itll go to IR translation
     for (const ia32::Instruction& instruction : bundle)
@@ -332,10 +366,10 @@ translator::Status translator::Translator::translate(const ia32::InstructionBund
         const ia32::OpcodeID& id = instruction.OpcodeID;
         if (!direct_route::is_direct_eligible(id))
         {
-            return ir::translate(bundle, emitter);
+            return ir::translate(bundle, guest_pc, emitter);
         }
     }
-    return direct_route::translate(bundle, emitter);
+    return direct_route::translate(bundle, guest_pc, emitter);
 }
 
 translator::Status translator::Translator::dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, jit::ARM64Emitter& emitter)
@@ -374,7 +408,7 @@ translator::Status translator::Translator::dispatch(const ia32::GuestProgram& pr
             if (id == ia32::OpcodeID::JMP_REL8  || id == ia32::OpcodeID::JMP_REL32 || 
                 id == ia32::OpcodeID::JE_REL8   || id == ia32::OpcodeID::JNE_REL8 ) { break; }
         }
-        return translate(bundle, emitter);
+        return translate(bundle, guest_eip, emitter);
     }
     return Status::NotImplemented;
 }
