@@ -1069,7 +1069,25 @@ int execute_JG_REL8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 
 int execute_IMM_GRP_EB_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
 int execute_IMM_GRP_EV_LZ   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
-int execute_IMM_GRP_EV_LB   (BUS *bus, CPU *cpu, Instruction *decoded_instr)   { (void) bus; (void)cpu; (void)decoded_instr; return UNIMPLEMENTED_INSTRUCTION; }  
+int execute_IMM_GRP_EV_LB(BUS *bus, CPU *cpu, Instruction *decoded_instr)
+{
+    (void)bus;
+    if (decoded_instr->mod != 0x3 || decoded_instr->reg_or_opcode != 0 ||
+        decoded_instr->has_operand_size_override)
+        return UNIMPLEMENTED_INSTRUCTION;
+    if (decoded_instr->rm_field >= 8 || decoded_instr->immediate_length != 1)
+        return BAD_DECODE;
+
+    // ModRM register order matches the first eight CPU register slots.
+    GeneralPurposeRegisterType destination_register = decoded_instr->rm_field;
+    uint32_t immediate = (uint32_t)(int32_t)(int8_t)decoded_instr->immediate[0];
+    ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
+    ALU(gpr_w_handler(cpu, destination_register, 32), immediate, NO_CIN, 32, OPC_ADD, &out);
+
+    set_gpr_w_handler(cpu, destination_register, 32, out.low);
+    update_status_register(cpu, OPC_ADD, out.flags_out);
+    return EXECUTE_SUCCESS;
+}
 
 int execute_TEST_RM8_R8(BUS *bus, CPU *cpu, Instruction *decoded_instr)
 {

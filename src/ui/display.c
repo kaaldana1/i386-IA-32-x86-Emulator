@@ -472,30 +472,30 @@ static void create_registers_table()
 
     wattroff(ui_state.windows[WINDOW_REGISTERS], COLOR_PAIR(1));
 
-    const int gpr_amount = 9;
     const int seg_amount = 6;
 
     const char *gpr_names[] = { 
-        "EAX","ECX","EDX","EBX","EIP","EBP","ESI","EDI","ESP"
+        [EAX] = "EAX", [ECX] = "ECX", [EDX] = "EDX", [EBX] = "EBX",
+        [ESP] = "ESP", [EBP] = "EBP", [ESI] = "ESI", [EDI] = "EDI", [EIP] = "EIP"
     };
     const char *sr_names[] = {"CS","DS","ES","FS","GS","SS"};
     const char *flag_names[] = {"CF","PF","AF","ZF","SF","OF"};
 
     wattron(ui_state.windows[WINDOW_REGISTERS], COLOR_PAIR(2));
-    for (int i = 0; i < gpr_amount - 1;  i++) 
+    for (int i = 0; i < GeneralPurposeRegister_AMOUNT; i++)
     {
 
-        if (strcmp(gpr_names[i], "EIP") == 0) 
+        if (i == EIP)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset, " %-8s ", gpr_names[i]);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset, " CODE_PTR ");
         }
-        else if (strcmp(gpr_names[i], "ESP") == 0)
+        else if (i == ESP)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset, " %-8s ", gpr_names[i]);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset, " STACK_PTR ");
         }
-        else if (strcmp(gpr_names[i], "EDI") == 0)
+        else if (i == EDI)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*4, gen_header_x_offset, " %-8s ", gpr_names[i]);
         }
@@ -535,21 +535,21 @@ static void update_register_window()
     int seg_header_x_offset         = (objects[REGISTER_TABLE_AREA].x_pos + 2)  + (SEGMENT_FIELD_X_POS)  * objects[REGISTER_TABLE_ENTRY].width;
     int sr_header_x_offset          = (objects[REGISTER_TABLE_AREA].x_pos + 2)  + (STATUS_FIELD_X_POS)   * objects[REGISTER_TABLE_ENTRY].width;
 
-    for (int i = 0; i < 9; i++) 
+    for (int i = 0; i < GeneralPurposeRegister_AMOUNT; i++)
     {
         char buf[9];
         snprintf(buf, sizeof(buf), "%08x", ui_state.cpu.gen_purpose_registers[i].dword);
-        if ( i == 4 ) 
+        if (i == EIP)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset + 5, " %-8.8s ", buf);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, seg_header_x_offset, " CODE_PTR ");
         }
-        else if ( i == 8 )
+        else if (i == ESP)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset + 5, " %-8.8s ", buf);
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 2 + objects[REGISTER_TABLE_ENTRY].height*divider_amount, sr_header_x_offset, " STACK_PTR ");
         }
-        else if ( i == 7 )
+        else if (i == EDI)
         {
             mvwprintw(ui_state.windows[WINDOW_REGISTERS], bottom_header_line_y_offset + 1 + objects[REGISTER_TABLE_ENTRY].height*4, gen_header_x_offset + 5, "%-8.8s", buf);
         }

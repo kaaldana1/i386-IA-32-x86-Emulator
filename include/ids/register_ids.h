@@ -3,8 +3,8 @@
 
 typedef enum
 {
-    EAX, ECX, EDX, EBX, EIP,
-    EBP, ESI, EDI, ESP
+    EAX, ECX, EDX, EBX, ESP,
+    EBP, ESI, EDI, EIP
 } GeneralPurposeRegisterType;
 
 typedef enum 
