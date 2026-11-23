@@ -157,15 +157,14 @@ namespace translator::ir
                                 ExitBlock>;
 };
 
-namespace aarch64 { using RegisterNumber = std::uint32_t; }
-
-namespace jit {
+namespace aarch64 {
+    using RegisterNumber = std::uint32_t;
     using BlockFunction = void (*)(ia32::CPU* cpu_state);
 
-    class ARM64Emitter
+    class Emitter
     {
         public:
-            explicit ARM64Emitter(asmjit::a64::Assembler& assembler, asmjit::CodeHolder& code, asmjit::JitRuntime& runtime)
+            explicit Emitter(asmjit::a64::Assembler& assembler, asmjit::CodeHolder& code, asmjit::JitRuntime& runtime)
                 : assembler(assembler), code(code), runtime(runtime) {}
 
             asmjit::Error begin_block()
@@ -177,7 +176,7 @@ namespace jit {
                 return code.attach(&assembler);
             }
 
-            asmjit::Error load_immediate32(aarch64::RegisterNumber destination, std::uint32_t immediate)
+            asmjit::Error load_immediate32(RegisterNumber destination, std::uint32_t immediate)
             {
                 const auto low = immediate & 0xFFFFu;
                 const auto high = immediate >> 16;
@@ -187,61 +186,56 @@ namespace jit {
             }
 
             // x0 holds the CPU pointer throughout the block, offset for the registers
-            asmjit::Error load_cpu32(aarch64::RegisterNumber destination, std::int32_t offset)
+            asmjit::Error load_cpu32(RegisterNumber destination, std::int32_t offset)
             {
                 return assembler.ldr(asmjit::a64::w(destination), asmjit::a64::ptr(asmjit::a64::x0, offset));
             }
 
-            asmjit::Error load_cpu16(aarch64::RegisterNumber destination, std::int32_t offset)
+            asmjit::Error load_cpu16(RegisterNumber destination, std::int32_t offset)
             {
                 return assembler.ldrh(asmjit::a64::w(destination), asmjit::a64::ptr(asmjit::a64::x0, offset));
             }
 
-            asmjit::Error and_immediate32(aarch64::RegisterNumber destination, aarch64::RegisterNumber source, std::uint32_t mask)
+            asmjit::Error and_immediate32(RegisterNumber destination, RegisterNumber source, std::uint32_t mask)
             {
                 return assembler.and_(asmjit::a64::w(destination), asmjit::a64::w(source), mask);
             }
 
-            bool store_guest_zf(aarch64::RegisterNumber result, std::int32_t status_reg_offset)
+            bool store_guest_zf(RegisterNumber result, std::int32_t status_reg_offset)
             {
-                if (assembler.cmp(asmjit::a64::w(result), 0) != asmjit::Error::kOk || 
-                    assembler.cset(asmjit::a64::w(result), asmjit::arm::CondCode::kEQ) != asmjit::Error::kOk ||
-                    assembler.ldrh(asmjit::a64::w(10), asmjit::a64::ptr(asmjit::a64::x0, status_reg_offset)) != asmjit::Error::kOk ||
-                    assembler.bic(asmjit::a64::w(10), asmjit::a64::w(10), 0x2) != asmjit::Error::kOk || // clears ZF
-                    assembler.orr(asmjit::a64::w(10), asmjit::a64::w(10), asmjit::a64::w(result)) != asmjit::Error::kOk ||
-                    assembler.strh(asmjit::a64::w(10), asmjit::a64::ptr(asmjit::a64::x0, status_reg_offset)) != asmjit::Error::kOk)
-                { return false; }
-                return true;
+                return (compare_immediate32(result, 0) == asmjit::Error::kOk &&
+                       set_equal32(result) == asmjit::Error::kOk &&
+                       write_guest_zf(result, status_reg_offset) == asmjit::Error::kOk);
             }
 
             // from source register to an address
-            asmjit::Error store_cpu32(aarch64::RegisterNumber source, std::int32_t offset)
+            asmjit::Error store_cpu32(RegisterNumber source, std::int32_t offset)
             {
                 return assembler.str(asmjit::a64::w(source), asmjit::a64::ptr(asmjit::a64::x0, offset));
             }
 
-            asmjit::Error add32(aarch64::RegisterNumber destination, aarch64::RegisterNumber lhs, aarch64::RegisterNumber rhs)
+            asmjit::Error add32(RegisterNumber destination, RegisterNumber lhs, RegisterNumber rhs)
             {
                 return assembler.add(asmjit::a64::w(destination), asmjit::a64::w(lhs), asmjit::a64::w(rhs));
             }
 
-            asmjit::Error add_immediate32(aarch64::RegisterNumber destination, aarch64::RegisterNumber source, std::uint32_t immediate)
+            asmjit::Error add_immediate32(RegisterNumber destination, RegisterNumber source, std::uint32_t immediate)
             {
                 return assembler.add(asmjit::a64::w(destination), asmjit::a64::w(source), immediate);
             }
 
-            asmjit::Error compare_immediate32(aarch64::RegisterNumber source, std::uint32_t immediate)
+            asmjit::Error compare_immediate32(RegisterNumber source, std::uint32_t immediate)
             {
                 return assembler.cmp(asmjit::a64::w(source), immediate);
             }
 
-            asmjit::Error set_equal32(aarch64::RegisterNumber destination)
+            asmjit::Error set_equal32(RegisterNumber destination)
             {
                 // EQ tests the host Z flag set by a preceding comparison 
                 return assembler.cset(asmjit::a64::w(destination), asmjit::arm::CondCode::kEQ);
             }
 
-            asmjit::Error select_register(aarch64::RegisterNumber destination, aarch64::RegisterNumber if_true, aarch64::RegisterNumber if_false, asmjit::arm::CondCode condition)
+            asmjit::Error select_register(RegisterNumber destination, RegisterNumber if_true, RegisterNumber if_false, asmjit::arm::CondCode condition)
             {
                 return assembler.csel(asmjit::a64::w(destination), asmjit::a64::w(if_true), asmjit::a64::w(if_false), condition);
             }
@@ -256,7 +250,108 @@ namespace jit {
                 return runtime.add(&block_function, &code);
             }
 
+            asmjit::Error operation_to_host(translator::ir::operation operation)
+            {
+                // The frontend reuses IDs 0–3. Map them to w9–w12 and keep w13 for flag writes.
+                constexpr auto status_reg_offset = static_cast<std::int32_t>(offsetof(ia32::CPU, status_register));
+                const auto valid = [](translator::ir::Value value) { return value.id < 4; };
+                const auto host_reg = [](translator::ir::Value value) { return 9u + value.id; };
+
+                if (const auto* constant = std::get_if<translator::ir::Const32>(&operation))
+                {
+                    if (!valid(constant->destination)) { return asmjit::Error::kInvalidArgument; }
+                    return load_immediate32(host_reg(constant->destination), constant->value);
+                }
+
+                if (const auto* load = std::get_if<translator::ir::LoadReg32>(&operation))
+                {
+                    if (!valid(load->destination)) { return asmjit::Error::kInvalidArgument; }
+                    return load_cpu32(host_reg(load->destination), ia32::get_register_offset(load->reg));
+                }
+
+                if (const auto* store = std::get_if<translator::ir::StoreReg32>(&operation))
+                {
+                    if (!valid(store->source)) { return asmjit::Error::kInvalidArgument; }
+                    return store_cpu32(host_reg(store->source), ia32::get_register_offset(store->reg));
+                }
+
+                if (const auto* add = std::get_if<translator::ir::Add32>(&operation))
+                {
+                    if (!valid(add->destination) || !valid(add->lhs) || !valid(add->rhs))
+                    { return asmjit::Error::kInvalidArgument; }
+                    return add32(host_reg(add->destination), host_reg(add->lhs), host_reg(add->rhs));
+                }
+
+                if (const auto* is_zero = std::get_if<translator::ir::IsZero32>(&operation))
+                {
+                    if (!valid(is_zero->destination) || !valid(is_zero->source)) { return asmjit::Error::kInvalidArgument; }
+                    const auto error = compare_immediate32(host_reg(is_zero->source), 0);
+                    if (error != asmjit::Error::kOk) { return error; }
+                    return set_equal32(host_reg(is_zero->destination));
+                }
+
+                if (const auto* equal = std::get_if<translator::ir::Equal32>(&operation))
+                {
+                    if (!valid(equal->destination) || !valid(equal->lhs) || !valid(equal->rhs)) { return asmjit::Error::kInvalidArgument; }
+
+                    const auto error = assembler.cmp(asmjit::a64::w(host_reg(equal->lhs)), asmjit::a64::w(host_reg(equal->rhs)));
+                    if (error != asmjit::Error::kOk) { return error; }
+                    return set_equal32(host_reg(equal->destination));
+                }
+
+                if (const auto* load = std::get_if<translator::ir::LoadZF>(&operation))
+                {
+                    if (!valid(load->destination)) { return asmjit::Error::kInvalidArgument; }
+
+                    const auto destination = host_reg(load->destination);
+                    const auto error = load_cpu16(destination, status_reg_offset);
+                    if (error != asmjit::Error::kOk) { return error; }
+                    return assembler.ubfx(asmjit::a64::w(destination), asmjit::a64::w(destination), 1, 1);
+                }
+
+                if (const auto* store = std::get_if<translator::ir::StoreZF>(&operation))
+                {
+                    if (!valid(store->source)) { return asmjit::Error::kInvalidArgument; }
+                    return write_guest_zf(host_reg(store->source), status_reg_offset);
+                }
+
+                if (const auto* select = std::get_if<translator::ir::Select32>(&operation))
+                {
+                    if (!valid(select->destination) || !valid(select->condition) ||
+                        !valid(select->if_true) || !valid(select->if_false))
+                    { return asmjit::Error::kInvalidArgument; }
+                    const auto error = compare_immediate32(host_reg(select->condition), 0);
+                    if (error != asmjit::Error::kOk) { return error; }
+                    return select_register(host_reg(select->destination), host_reg(select->if_true), host_reg(select->if_false), asmjit::arm::CondCode::kNE);
+                }
+
+                if (const auto* set_eip = std::get_if<translator::ir::SetGuestEIP>(&operation))
+                {
+                    if (!valid(set_eip->value)) { return asmjit::Error::kInvalidArgument; }
+                    return store_cpu32(host_reg(set_eip->value), ia32::get_register_offset(ia32::GuestRegType::EIP));
+                }
+                if (std::holds_alternative<translator::ir::ExitBlock>(operation)) { return ret(); }
+                return asmjit::Error::kInvalidArgument;
+            }
+
         private:
+            asmjit::Error write_guest_zf(RegisterNumber source, std::int32_t status_reg_offset)
+            {
+                constexpr RegisterNumber scratch = 13;
+                const auto status = asmjit::a64::w(scratch);
+
+                auto error = load_cpu16(scratch, status_reg_offset);
+                if (error != asmjit::Error::kOk) { return error; }
+
+                error = assembler.bic(status, status, ::ZF);
+                if (error != asmjit::Error::kOk) { return error; }
+
+                error = assembler.orr(status, status, asmjit::a64::w(source), asmjit::a64::lsl(1));
+                if (error != asmjit::Error::kOk) { return error; }
+
+                return assembler.strh(status, asmjit::a64::ptr(asmjit::a64::x0, status_reg_offset));
+            }
+
             asmjit::a64::Assembler& assembler;
             asmjit::CodeHolder& code;
             asmjit::JitRuntime& runtime;
@@ -276,25 +371,34 @@ namespace translator
         TranslationError,
         DecodeError,
         InvalidGuestPC,
+        NoOperation,
         CodeInstallationError
     };
 
-    // A better version should use guest_pc plus CPU context for lookup.
-    // A better version should use guest_pc plus CPU context for lookup.
+    // A better version should use guest_pc plus CPU context for lookup
     using GuestPC = std::uint32_t;
-    using TranslationCache = std::unordered_map<GuestPC, jit::BlockFunction>;
+    using TranslationCache = std::unordered_map<GuestPC, aarch64::BlockFunction>;
 
 };
 
 namespace translator::ir 
 {
-    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter)
+    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter)
     {
         std::vector<ir::operation> ir_operations;
+
+        const auto store_result_and_zf = [&ir_operations](ia32::GuestRegType reg, ir::Value result) {
+            ir_operations.push_back(ir::StoreReg32{.reg = reg, .source = result});
+            ir_operations.push_back(ir::IsZero32{.destination = {3}, .source = result});
+            ir_operations.push_back(ir::StoreZF{.source = {3}});
+        };
+
         for (const ia32::Instruction& instruction : bundle)
         {
             const std::uint32_t next_pc = guest_pc + instruction.total_length;
             const auto guest_reg = static_cast<ia32::GuestRegType>(instruction.opcode[0] & 0x7);
+            const auto rm_guest_reg = static_cast<ia32::GuestRegType>(instruction.rm_field);
+            const auto modrm_reg = static_cast<ia32::GuestRegType>(instruction.reg_or_opcode);
 
             switch(instruction.OpcodeID)
             {
@@ -318,7 +422,7 @@ namespace translator::ir
                     ir_operations.push_back(ir::LoadReg32{.destination = {0}, .reg = guest_reg});
                     ir_operations.push_back(ir::Const32{.destination = {1}, .value = 1});
                     ir_operations.push_back(ir::Add32{.destination = {2}, .lhs = {0}, .rhs = {1}});
-                    ir_operations.push_back(ir::StoreReg32{.reg = guest_reg, .source = {2}});
+                    store_result_and_zf(guest_reg, ir::Value{2});
                     break;
                 }
 
@@ -346,27 +450,63 @@ namespace translator::ir
                     ir_operations.push_back(ir::Const32{.destination = {1}, .value = target_address});
                     ir_operations.push_back(ir::Const32{.destination = {2}, .value = fallback_address});
                     const bool jump_if_zero = instruction.OpcodeID == ia32::OpcodeID::JE_REL8;
-                    ir_operations.push_back(ir::Select32{.destination = {3}, .condition = {0},
-                        .if_true = {jump_if_zero ? 1u : 2u}, .if_false = {jump_if_zero ? 2u : 1u}});
+                    ir_operations.push_back(ir::Select32{.destination = {3}, .condition = {0}, .if_true = {jump_if_zero ? 1u : 2u}, .if_false = {jump_if_zero ? 2u : 1u}});
                     ir_operations.push_back(ir::SetGuestEIP{.value = {3}});
                     ir_operations.push_back(ir::ExitBlock{});
                     break;
                 }
 
                 case ia32::OpcodeID::ADD_R32_RM32:
+                    // for now, translator only accepts register direct (no mem operands)
+                    // bool is_register_direct = instruction.mod == 0x3; 
+                    ir_operations.push_back(ir::LoadReg32{.destination = {0}, .reg = modrm_reg});
+                    ir_operations.push_back(ir::LoadReg32{.destination = {1}, .reg = rm_guest_reg});
+                    ir_operations.push_back(ir::Add32{.destination = {0}, .lhs = {0}, .rhs = {1}});
+                    store_result_and_zf(modrm_reg, ir::Value{0});
+                    break;
+
                 case ia32::OpcodeID::IMM_GRP_EV_LB:
+                {
+                    uint32_t immediate = (uint32_t)(int32_t)(int8_t)instruction.immediate[0];
+                    ir_operations.push_back(ir::LoadReg32{.destination = {0}, .reg = rm_guest_reg});
+                    ir_operations.push_back(ir::Const32{.destination = {1}, .value = immediate});
+                    ir_operations.push_back(ir::Add32{.destination = {2}, .lhs = {0}, .rhs = {1}});
+                    store_result_and_zf(rm_guest_reg, ir::Value{2});
+                    break;
+                }
+
                 case ia32::OpcodeID::CMP_R32_RM32:
+                    ir_operations.push_back(ir::LoadReg32{.destination = {0}, .reg = modrm_reg});
+                    ir_operations.push_back(ir::LoadReg32{.destination = {1}, .reg = rm_guest_reg});
+                    ir_operations.push_back(ir::Equal32{.destination = {2}, .lhs = {0}, .rhs = {1}});
+                    ir_operations.push_back(ir::StoreZF{.source = {2}});
+                    break;
+
                 default:
                     return Status::NotImplemented;
             }
             guest_pc = next_pc;
         }
-        return Status::NotImplemented;
+        // frontend done, now time to emit
+        if (ir_operations.empty()) { return Status::NoOperation; }
+        if (!std::holds_alternative<ir::ExitBlock>(ir_operations.back()))
+        {
+            ir_operations.push_back(ir::Const32{.destination = {0}, .value = guest_pc});
+            ir_operations.push_back(ir::SetGuestEIP{.value = {0}});
+            ir_operations.push_back(ir::ExitBlock{});
+        }
+
+        for (const auto& operation : ir_operations)
+        {
+            if (emitter.operation_to_host(operation) != asmjit::Error::kOk)
+            { return Status::TranslationError; }
+        }
+        return Status::Success;
     }
 }
 namespace translator::direct_route
 {
-    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter)
+    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter)
     {
         using asmjit::Error;
 
@@ -474,7 +614,7 @@ namespace translator::direct_route
 
 namespace translator
 {
-    Status route_translation(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, jit::ARM64Emitter& emitter)
+    Status route_translation(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter)
     {
         // whole bundle needs to be direct route or itll go to IR translation
         for (const ia32::Instruction& instruction : bundle)
@@ -488,7 +628,7 @@ namespace translator
         return direct_route::translate(bundle, guest_pc, emitter);
     }
 
-    Status dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, jit::ARM64Emitter& emitter, TranslationCache& translation_cache)
+    Status dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, aarch64::Emitter& emitter, TranslationCache& translation_cache)
     {
         // lookup code in cache first, if not, itll will go through the decoder, translator
         // install code
@@ -527,7 +667,7 @@ namespace translator
             if (emitter.begin_block() != asmjit::Error::kOk) { return Status::TranslationError; }
             if (route_translation(bundle, guest_eip, emitter) != Status::Success) { return Status::TranslationError; }
 
-            jit::BlockFunction block_function = nullptr;
+            aarch64::BlockFunction block_function = nullptr;
             if (emitter.code_install(block_function) != asmjit::Error::kOk) { return Status::CodeInstallationError; }
             translation_cache[guest_eip] = block_function;
 
@@ -555,7 +695,7 @@ int main(int argc, char *argv[])
     }
 
     asmjit::a64::Assembler assembler(&code);
-    jit::ARM64Emitter emitter(assembler, code, jit_runtime);
+    aarch64::Emitter emitter(assembler, code, jit_runtime);
 
     ia32::GuestProgram guest_program = ia32::read_binary_file(argv[1]);
     ia32::CPU guest_cpu_state{};
