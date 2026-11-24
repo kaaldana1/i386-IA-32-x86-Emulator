@@ -13,4 +13,6 @@ int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t gdtr_base, uint32_t gd
 
 int interpreter(CPU *cpu, BUS *bus, Clock *clock);
 
+extern bool interp_only;
+
 #endif

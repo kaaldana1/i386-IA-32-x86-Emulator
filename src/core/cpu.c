@@ -7,6 +7,7 @@
 #define MAX_INSTR_LENGTH 16
 
 InterruptController irc = {{0}, {0}};
+bool interp_only = false;
 
 static void set_SegmentRegister_cache(BUS *bus, CPU *cpu, SegmentRegisterType type) 
 {
@@ -144,8 +145,11 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
         machine_state.ui_callbacks.ui_reset_stack_after_execute();
     }
 
-    tick(clock);
-    execute_pending_interrupts();
+    if (!interp_only)
+    {
+        tick(clock);
+        execute_pending_interrupts();
+    }
 
     free(decoded_instruction);   
     return EXECUTE_SUCCESS;
