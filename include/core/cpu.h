@@ -12,6 +12,7 @@ CPU *create_cpu(void);
 int cpu_protected_mode_reset(BUS *bus, CPU *cpu, uint32_t gdtr_base, uint32_t gdtr_size);
 
 int interpreter(CPU *cpu, BUS *bus, Clock *clock);
+void print_final_state(const CPU *cpu);
 
 extern bool interp_only;
 
