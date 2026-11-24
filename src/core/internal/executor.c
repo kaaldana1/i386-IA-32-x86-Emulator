@@ -594,7 +594,7 @@ static int alu_increment_register(BUS *bus, CPU *cpu, Instruction *decoded_instr
 {
     GeneralPurposeRegisterType destination_register = decoded_instr->opcode[0] & 0x7;
     
-    ALU_out out;
+    ALU_out out = { .low = 0, .high = 0, .flags_out = 0, .cin = 0 };
     ALU(/*op1, base*/gpr_w_handler(cpu, destination_register, 32),
         /*op2, none*/0, 
                      NO_CIN, 32, OPC_INC, &out);
