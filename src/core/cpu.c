@@ -158,5 +158,12 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
 void print_final_state(const CPU *cpu)
 {
     printf("EAX=%u ECX=%u EIP=%u ZF=%d\n", cpu->gen_purpose_registers[EAX].dword, cpu->gen_purpose_registers[ECX].dword, cpu->gen_purpose_registers[EIP].dword, (cpu->status_register & ZF) ? 1 : 0);
+    const GeneralPurposeRegister *r = cpu->gen_purpose_registers;
+    const SegmentRegister *sr = cpu->segment_registers;
+    uint16_t f = cpu->status_register;
+    printf("EDX=%u EBX=%u ESP=%u EBP=%u ESI=%u EDI=%u CS=0x%04X DS=0x%04X ES=0x%04X FS=0x%04X GS=0x%04X SS=0x%04X SR=0x%04X CF=%d PF=%d AF=%d SF=%d OF=%d DF=%d IF=%d TF=%d\n",
+           r[EDX].dword, r[EBX].dword, r[ESP].dword, r[EBP].dword, r[ESI].dword, r[EDI].dword,
+           sr[CS].selector, sr[DS].selector, sr[ES].selector, sr[FS].selector, sr[GS].selector, sr[SS].selector, f,
+           (f & CF) ? 1 : 0, (f & PF) ? 1 : 0, (f & AF) ? 1 : 0, (f & SF) ? 1 : 0, (f & OF) ? 1 : 0, (f & DF) ? 1 : 0, (f & IF) ? 1 : 0, (f & TF) ? 1 : 0);
 }
 
