@@ -25,21 +25,21 @@
 
 static void print_cell(uint8_t byte, uint32_t address) 
 {
+    if (!ui_on) { return; }
     uint8_t *byte_buffer = (uint8_t *)malloc(4);
     byte_buffer[0] = byte;
     
-    if (ui_on)
-        machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
+    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 static void print_dword(uint32_t dword, uint32_t address) 
 {
+    if (!ui_on) { return; }
     uint8_t *byte_buffer = (uint8_t *)malloc(4);
     for(size_t shift = 0; shift <= 24; shift += 8)
         byte_buffer[shift/8] = (uint8_t)(dword & ((uint32_t)0xFF << shift) >> shift);
     
-    if (ui_on)
-        machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
+    machine_state.ui_callbacks.ui_copy_mem_after_execute(byte_buffer, address);
 }
 
 

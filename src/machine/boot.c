@@ -32,6 +32,11 @@ int start(Program *p)
     {
         result = interpreter(machine->cpu, machine->bus, machine->clock);
         if (!(result == END_OF_PROGRAM || result == EXECUTE_SUCCESS)) { destroy_machine(machine); return result; }
+        if (interp_only)
+        {
+            if (result == END_OF_PROGRAM) { break; }
+            continue;
+        }
         ch = getch();
         if (ch != ERR) 
         {

@@ -9,6 +9,14 @@
 int main(int argc, char **argv)
 {
     setlocale(LC_ALL, "");
+    for (int j = 1; j < argc; j++)
+    {
+        if (strcmp(argv[j], "--interp-only") == 0)
+        {
+            interp_only = true;
+            ui_on = false;
+        }
+    }
     int i = 0;
     while (i < argc)
     {
@@ -18,7 +26,8 @@ int main(int argc, char **argv)
             printf("Required: \n \t --program <path> \t\t Path to the program file to load \n\n");
             printf("Options: \n");
             printf("\t --ui \t\t\t\t Enable the ncurses-based UI (default) \n");
-            printf("\t --headless \t\t\t Run the emulator without UI (in progress) \n\n");
+            printf("\t --headless \t\t\t Run the emulator without UI (in progress) \n");
+            printf("\t --interp-only \t\t\t Run only the fetch/decode/execute loop: no UI, input polling, device interrupts or delay; exits at end of program \n\n");
             printf("\t --delay <milliseconds> \t Set the delay between instruction executions in UI mode (the default is no delay) \n\n");
             printf("Runtime controls (for UI mode): \n");
             printf("\t Press 'q' or ctrl-c to quit the emulator\n");
@@ -45,6 +54,9 @@ int main(int argc, char **argv)
                 ui_on = true;
             }
 
+            if (interp_only)
+                ui_on = false;
+
             if (ui_on)
             {
                 i++;
@@ -63,7 +75,8 @@ int main(int argc, char **argv)
             }
 
             int status = start(p);
-            destroy_window();             
+            if (ui_on)
+                destroy_window();             
             fflush(stdout);
 
             switch (status)
