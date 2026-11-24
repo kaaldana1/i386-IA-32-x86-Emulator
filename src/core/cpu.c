@@ -155,3 +155,8 @@ int interpreter(CPU *cpu, BUS *bus, Clock *clock)
     return EXECUTE_SUCCESS;
 }
 
+void print_final_state(const CPU *cpu)
+{
+    printf("EAX=%u ECX=%u EIP=%u ZF=%d\n", cpu->gen_purpose_registers[EAX].dword, cpu->gen_purpose_registers[ECX].dword, cpu->gen_purpose_registers[EIP].dword, (cpu->status_register & ZF) ? 1 : 0);
+}
+

@@ -31,10 +31,15 @@ int start(Program *p)
     while (ch != 'q') 
     {
         result = interpreter(machine->cpu, machine->bus, machine->clock);
-        if (!(result == END_OF_PROGRAM || result == EXECUTE_SUCCESS)) { destroy_machine(machine); return result; }
+        if (!(result == END_OF_PROGRAM || result == EXECUTE_SUCCESS))
+        {
+            if (interp_only) { print_final_state(machine->cpu); }
+            destroy_machine(machine);
+            return result;
+        }
         if (interp_only)
         {
-            if (result == END_OF_PROGRAM) { break; }
+            if (result == END_OF_PROGRAM) { print_final_state(machine->cpu); break; }
             continue;
         }
         ch = getch();
