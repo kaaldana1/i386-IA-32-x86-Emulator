@@ -1,0 +1,3 @@
+# mov eax,0; mov ecx,-1000; L: inc eax; inc ecx; jne L  (break-even sweep)
+EAX=1000 ECX=0 EIP=14 ZF=1
+exit=0

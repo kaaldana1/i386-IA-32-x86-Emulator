@@ -1,0 +1,3 @@
+# mov eax,0xFFFFFFFF; inc eax; inc eax
+EAX=1 ECX=0 EIP=7 ZF=0
+exit=0

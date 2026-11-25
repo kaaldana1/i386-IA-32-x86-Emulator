@@ -1,0 +1,3 @@
+# mov eax,1; mov ecx,2; cmp eax,ecx; je +1 (not taken); inc eax; inc ecx
+EAX=2 ECX=3 EIP=16 ZF=0
+exit=0

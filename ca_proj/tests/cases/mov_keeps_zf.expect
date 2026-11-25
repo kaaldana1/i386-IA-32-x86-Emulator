@@ -1,0 +1,3 @@
+# mov eax,0xFFFFFFFF; inc eax; mov ecx,5 (MOV must not touch ZF)
+EAX=0 ECX=5 EIP=11 ZF=1
+exit=0

@@ -1,0 +1,3 @@
+# mov ecx,7; jmp +1 (rel8, skips one inc ecx); inc ecx
+EAX=0 ECX=8 EIP=9 ZF=0
+exit=0

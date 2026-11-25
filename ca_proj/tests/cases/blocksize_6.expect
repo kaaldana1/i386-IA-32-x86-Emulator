@@ -1,0 +1,3 @@
+# mov eax,0; mov ecx,-1000000; L: 4 filler incs (eax,edx,ebx rotating); inc ecx; jne L  (6-instr loop block)
+EAX=2000000 ECX=0 EIP=17 ZF=1
+exit=0

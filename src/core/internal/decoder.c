@@ -35,7 +35,26 @@ typedef struct
 {
     uint8_t *encoded_instr;
     size_t byte_p;
+    size_t size;
+    bool failed;
 } Cursor;
+
+// Check each access: displacement/immediate helpers can consume multiple bytes.
+static uint8_t peek_byte(Cursor *cursor)
+{
+    if (cursor->byte_p >= cursor->size || cursor->byte_p >= MAX_INSTR_LENGTH) {
+        cursor->failed = true;
+        return 0;
+    }
+    return cursor->encoded_instr[cursor->byte_p];
+}
+
+static uint8_t read_byte(Cursor *cursor)
+{
+    uint8_t byte = peek_byte(cursor);
+    cursor->byte_p++;
+    return byte;
+}
 
 static void put_byte(Instruction *decoded_instr, int field, uint8_t byte)
 {
@@ -72,7 +91,7 @@ static void decode_prefix(Instruction *decoded_instr, Cursor *cursor)
     while (cursor->byte_p < MAX_PREFIX_LENGTH)
     {
         bool add_byte = true;
-        switch (cursor->encoded_instr[cursor->byte_p])
+        switch (peek_byte(cursor))
         {
         case OPERAND_SIZE_OVERRIDE:
             decoded_instr->has_operand_size_override = true;
@@ -101,7 +120,7 @@ static void decode_prefix(Instruction *decoded_instr, Cursor *cursor)
 
         if (add_byte)
         {
-            put_byte(decoded_instr, FIELD_PREFIX, cursor->encoded_instr[cursor->byte_p++]);
+            put_byte(decoded_instr, FIELD_PREFIX, read_byte(cursor));
         }
         else
         {
@@ -117,11 +136,11 @@ static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
     while (cursor->byte_p < (size_t)MAX_OPCODE_LENGTH + return_p)
     {
         // use lookup table
-        if (!(cursor->encoded_instr[cursor->byte_p] == MULT_BYTE_FLAG))
+        if (!(peek_byte(cursor) == MULT_BYTE_FLAG))
         {
-            OpcodeID opcode = single_byte_opcode_lut[cursor->encoded_instr[cursor->byte_p]];
+            OpcodeID opcode = single_byte_opcode_lut[peek_byte(cursor)];
 
-            put_byte(decoded_instr, FIELD_OPCODE, cursor->encoded_instr[cursor->byte_p++]);
+            put_byte(decoded_instr, FIELD_OPCODE, read_byte(cursor));
             decoded_instr->OpcodeID = opcode;
 
 #ifdef DEBUG
@@ -133,7 +152,9 @@ static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
         }
         else
         {
-            // multiple-byte instructions here
+            // TODO: multiple-byte instructions. Reject instead of looping forever.
+            cursor->failed = true;
+            return;
         }
     }
 
@@ -142,7 +163,7 @@ static void decode_opcode(Instruction *decoded_instr, Cursor *cursor)
 
 static void decode_sib(Instruction *decoded_instr, Cursor *cursor)
 {
-        put_byte(decoded_instr, FIELD_SIB, cursor->encoded_instr[cursor->byte_p++]);
+        put_byte(decoded_instr, FIELD_SIB, read_byte(cursor));
 
         decoded_instr->scale = ((decoded_instr->sib >> 6) & 0x3);
         decoded_instr->index =(((decoded_instr->sib) >> 3) & 0x7);
@@ -155,7 +176,7 @@ static void decode_modrm(Instruction *decoded_instr, Cursor *cursor)
 {
     if (instr_metadata_lut[decoded_instr->OpcodeID].has_modrm)
     {
-        put_byte(decoded_instr, FIELD_MODRM, cursor->encoded_instr[cursor->byte_p++]);
+        put_byte(decoded_instr, FIELD_MODRM, read_byte(cursor));
 
         uint8_t mod = (((decoded_instr->modrm) >> 6) & 0x3);
         uint8_t reg_or_opcode = (((decoded_instr->modrm) >> 3) & 0x7);
@@ -195,19 +216,19 @@ static void decode_disp(Instruction *decoded_instr, Cursor *cursor)
             {
                 for (size_t i = 0; i < 4; i++) 
                 {
-                    put_byte(decoded_instr, FIELD_DISPLACEMENT, cursor->encoded_instr[cursor->byte_p++]);
+                    put_byte(decoded_instr, FIELD_DISPLACEMENT, read_byte(cursor));
                 }
             }
         break;
 
         case MOD_DISP8: 
-            put_byte(decoded_instr, FIELD_DISPLACEMENT, cursor->encoded_instr[cursor->byte_p++]);
+            put_byte(decoded_instr, FIELD_DISPLACEMENT, read_byte(cursor));
         break; 
 
         case MOD_DISP32: 
             for (size_t i = 0; i < 4; i++) 
             {
-                put_byte(decoded_instr, FIELD_DISPLACEMENT, cursor->encoded_instr[cursor->byte_p++]);
+                put_byte(decoded_instr, FIELD_DISPLACEMENT, read_byte(cursor));
             }
         break; 
         
@@ -222,12 +243,12 @@ static void decode_imm(Instruction *decoded_instr, Cursor *cursor)
     {
         while (cursor->byte_p < instr_metadata_lut[decoded_instr->OpcodeID].immediate_bytes + return_p) 
         {
-            put_byte(decoded_instr, FIELD_IMMEDIATE, cursor->encoded_instr[cursor->byte_p++]);
+            put_byte(decoded_instr, FIELD_IMMEDIATE, read_byte(cursor));
         }
     }
 }
 
-Instruction *decoder(uint8_t *encoded_instr)
+Instruction *decoder(uint8_t *encoded_instr, size_t prefetched_size)
 {
     //printw("/////////////////////////////////////////////////////////////////////\n");
     //printw("/////////////////////////////////////////////////////////////////////\n");
@@ -236,10 +257,12 @@ Instruction *decoder(uint8_t *encoded_instr)
     //printw("\n==================Decoding===================\n");
 
 
+    if (encoded_instr == NULL || prefetched_size == 0) { return NULL; }
+
     Instruction *decoded_instr = calloc(1, sizeof(Instruction));
     if (decoded_instr == NULL) { return NULL; }
 
-    Cursor cursor = (Cursor){encoded_instr, 0};
+    Cursor cursor = (Cursor){encoded_instr, 0, prefetched_size, false};
 
     // Decode byte by byte
     decode_prefix(decoded_instr, &cursor);
@@ -247,6 +270,7 @@ Instruction *decoder(uint8_t *encoded_instr)
     decode_modrm(decoded_instr, &cursor);
     decode_disp(decoded_instr, &cursor);
     decode_imm(decoded_instr, &cursor);
+    if (cursor.failed) { free(decoded_instr); return NULL; }
 
 
     decoded_instr->total_length = decoded_instr->modrm_length +
