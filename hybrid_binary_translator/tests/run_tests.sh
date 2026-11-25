@@ -9,7 +9,7 @@ timeout_s="${TIMEOUT:-10}"
 
 if [[ ! -x "$translator" ]]; then
     echo "translator not found or not executable: $translator" >&2
-    echo "build it with: cmake -S ca_proj -B ca_proj/build-rc -DCMAKE_BUILD_TYPE=Release && cmake --build ca_proj/build-rc -j" >&2
+    echo "build it with: cmake -S hybrid_binary_translator -B hybrid_binary_translator/build-rc -DCMAKE_BUILD_TYPE=Release && cmake --build hybrid_binary_translator/build-rc -j" >&2
     exit 2
 fi
 
