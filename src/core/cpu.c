@@ -113,6 +113,7 @@ static int check_instr(Instruction *instr)
     if (instr == NULL) { free(instr); return BAD_DECODE; }
     if (instr->total_length == 0) { free(instr); return BAD_DECODE; }
     if (instr->opcode[0] >= MAX_INSTRUCTIONS) { free(instr); return BAD_DECODE; }
+    return 0;
 }
 
 int interpreter(CPU *cpu, BUS *bus, Clock *clock) 
