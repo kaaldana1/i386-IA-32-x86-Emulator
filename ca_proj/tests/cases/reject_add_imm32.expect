@@ -1,0 +1,3 @@
+# mov eax,1; add eax,imm32 (05 id, not accepted) -> InstructionNotAccepted
+EAX=0 ECX=0 EIP=0 ZF=0
+exit=3

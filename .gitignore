@@ -7,3 +7,10 @@
 log.txt
 c
 /build/translator/
+
+# ca_proj translator: CMake build dirs, local benchmark output, extra interpreter builds
+/ca_proj/build*/
+/ca_proj/tests/output/
+c_O2
+__pycache__/
+.ipynb_checkpoints/

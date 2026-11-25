@@ -1,0 +1,3 @@
+# jne +0x10 past end -> InvalidGuestPC
+EAX=0 ECX=0 EIP=18 ZF=0
+exit=8

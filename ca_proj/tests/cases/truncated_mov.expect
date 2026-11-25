@@ -1,0 +1,3 @@
+# mov eax,imm32 cut off -> DecodeError
+EAX=0 ECX=0 EIP=0 ZF=0
+exit=7

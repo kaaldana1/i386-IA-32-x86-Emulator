@@ -1,0 +1,3 @@
+# mov eax,10; mov ecx,20; add eax,ecx  (IR route)
+EAX=30 ECX=20 EIP=12 ZF=0
+exit=0

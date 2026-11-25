@@ -1,0 +1,3 @@
+# mov eax,0; mov ebx,-1000; O: mov ecx,-10000; I: inc eax; inc ecx; jne I; inc ebx; jne O
+EAX=10000000 ECX=0 EIP=22 ZF=1
+exit=0

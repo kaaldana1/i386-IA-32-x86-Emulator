@@ -1,0 +1,3 @@
+# 10x inc eax; 2x inc ecx (over the 8-instruction block cap)
+EAX=10 ECX=2 EIP=12 ZF=0
+exit=0

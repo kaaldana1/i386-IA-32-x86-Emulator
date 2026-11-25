@@ -1,0 +1,3 @@
+# nop: not in the accepted set -> Status::InstructionNotAccepted (3)
+EAX=0 ECX=0 EIP=0 ZF=0
+exit=3

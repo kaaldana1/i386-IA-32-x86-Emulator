@@ -1,0 +1,3 @@
+# 200x (inc eax; add ebx,1), no loops: 400 instrs / 50 blocks run once (translation-cost dominated)
+EAX=200 ECX=0 EIP=800 ZF=0
+exit=0

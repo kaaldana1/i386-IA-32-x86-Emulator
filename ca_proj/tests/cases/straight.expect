@@ -1,0 +1,3 @@
+# mov eax,7; mov ecx,3; inc eax; inc ecx  (direct route)
+EAX=8 ECX=4 EIP=12 ZF=0
+exit=0
