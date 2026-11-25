@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <optional>
 #include <algorithm>
@@ -383,7 +384,8 @@ namespace translator
 
 namespace translator::ir 
 {
-    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter)
+    std::vector<operation> ignore_redundant_ZF_checks(std::vector<operation>& ir_operations);
+    Status translate(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter, bool optimize_ir)
     {
         std::vector<ir::operation> ir_operations;
 
@@ -496,6 +498,12 @@ namespace translator::ir
             ir_operations.push_back(ir::ExitBlock{});
         }
 
+        if (optimize_ir) 
+        { 
+            auto optimized_ir = ignore_redundant_ZF_checks(ir_operations); 
+            ir_operations.swap(optimized_ir);
+        }
+
         for (const auto& operation : ir_operations)
         {
             if (emitter.operation_to_host(operation) != asmjit::Error::kOk)
@@ -503,6 +511,38 @@ namespace translator::ir
         }
         return Status::Success;
     }
+
+    std::vector<operation> ignore_redundant_ZF_checks(std::vector<operation>& ir_operations)
+    {
+        bool ZF_needed = true;
+        std::vector<operation> optimized_ir_block = {};
+        for (std::size_t i = ir_operations.size(); i > 0; i--)
+        {
+            const auto operation = ir_operations[i-1];
+            if (const auto *load_ZF = std::get_if<translator::ir::LoadZF>(&operation)) { ZF_needed = true; }
+            else if (const auto *store_ZF = std::get_if<translator::ir::StoreZF>(&operation))
+            {
+                if (!ZF_needed) 
+                {
+                        const ir::operation& previous = ir_operations[i - 2];
+                        const ir::IsZero32* test = std::get_if<ir::IsZero32>(&previous);
+                        const ir::Equal32* equal = std::get_if<ir::Equal32>(&previous);
+                        if ((test && test->destination.id == store_ZF->source.id) 
+                            || (equal && equal->destination.id == store_ZF->source.id))
+                        { --i; }
+                    continue; // skip both the storeZF and the test
+                }
+                // if there are any more store & test ZF behind this one that is not followed by their own load ZF, then 
+                // the results of those tests are not read and can be ignored, keeping ZF_needed false
+                ZF_needed = false; 
+            } 
+            optimized_ir_block.push_back(operation);
+        }
+
+        std::reverse(optimized_ir_block.begin(), optimized_ir_block.end());
+        return optimized_ir_block;
+    }
+
 }
 namespace translator::direct_route
 {
@@ -614,21 +654,24 @@ namespace translator::direct_route
 
 namespace translator
 {
-    Status route_translation(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter)
+    Status route_translation(const ia32::InstructionBundle& bundle, std::uint32_t guest_pc, aarch64::Emitter& emitter, 
+                             bool force_ir, bool optimize_ir)
     {
+        if (force_ir) { return ir::translate(bundle, guest_pc, emitter, optimize_ir); }
         // whole bundle needs to be direct route or itll go to IR translation
         for (const ia32::Instruction& instruction : bundle)
         {
             const ia32::OpcodeID& id = instruction.OpcodeID;
             if (!direct_route::is_direct_eligible(id))
             {
-                return ir::translate(bundle, guest_pc, emitter);
+                return ir::translate(bundle, guest_pc, emitter, optimize_ir=false);
             }
         }
         return direct_route::translate(bundle, guest_pc, emitter);
     }
 
-    Status dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, aarch64::Emitter& emitter, TranslationCache& translation_cache)
+    Status dispatch(const ia32::GuestProgram& program, ia32::CPU& cpu, aarch64::Emitter& emitter, TranslationCache& translation_cache, 
+                    bool force_ir, bool optimize_ir)
     {
         // lookup code in cache first, if not, itll will go through the decoder, translator
         // install code
@@ -665,22 +708,33 @@ namespace translator
                     id == ia32::OpcodeID::JE_REL8   || id == ia32::OpcodeID::JNE_REL8 ) { break; }
             }
             if (emitter.begin_block() != asmjit::Error::kOk) { return Status::TranslationError; }
-            if (route_translation(bundle, guest_eip, emitter) != Status::Success) { return Status::TranslationError; }
+            if (route_translation(bundle, guest_eip, emitter, force_ir, optimize_ir) != Status::Success) { return Status::TranslationError; }
 
             aarch64::BlockFunction block_function = nullptr;
             if (emitter.code_install(block_function) != asmjit::Error::kOk) { return Status::CodeInstallationError; }
             translation_cache[guest_eip] = block_function;
 
         }
-        return Status::NotImplemented;
+        translation_cache[guest_eip](&cpu);
+        return Status::Success;
     }
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2) 
+    bool force_ir = false;
+    bool optimize_ir  = false;
+    const char* guest_binary = nullptr;
+    for (int i = 1; i < argc; ++i)
     {
-        std::fprintf(stderr, "Usage: %s <guest-binary>\n", argv[0]);
+        if (std::strcmp(argv[i], "--force_ir") == 0) { force_ir = true; }
+        else if (std::strcmp(argv[i], "--optimize_ir") == 0) { force_ir = true; optimize_ir = true; }
+        else if (!guest_binary) { guest_binary = argv[i]; }
+        else { guest_binary = nullptr; break; }
+    }
+    if (!guest_binary)
+    {
+        std::fprintf(stderr, "Usage: %s [--force_ir] or [--optimize_ir] <guest-binary>\n", argv[0]);
         return 1;
     }
 
@@ -697,15 +751,16 @@ int main(int argc, char *argv[])
     asmjit::a64::Assembler assembler(&code);
     aarch64::Emitter emitter(assembler, code, jit_runtime);
 
-    ia32::GuestProgram guest_program = ia32::read_binary_file(argv[1]);
+    ia32::GuestProgram guest_program = ia32::read_binary_file(guest_binary);
     ia32::CPU guest_cpu_state{};
 
     translator::TranslationCache translation_cache;
     translator::Status result = translator::Status::NotImplemented;
     do {
-        result = translator::dispatch(guest_program, guest_cpu_state, emitter, translation_cache);
+        result = translator::dispatch(guest_program, guest_cpu_state, emitter, translation_cache, force_ir, optimize_ir);
     }
     while (result == translator::Status::Success);
+    std::printf("EAX=%u ECX=%u EIP=%u ZF=%d\n", guest_cpu_state.gen_purpose_registers[::EAX].dword, guest_cpu_state.gen_purpose_registers[::ECX].dword, guest_cpu_state.gen_purpose_registers[::EIP].dword, (guest_cpu_state.status_register >> 1) & 1);
     if (result == translator::Status::EndOfGuestProgram) { return 0; }
     return static_cast<int>(result);
 }
